@@ -41,11 +41,14 @@ def plotAllFastq():
     runner.globalsummary()
 
 def run_pileup():
+    pa = Analysis()
+    pa.load_probe_annotation()
     runner = Pileup()
-    runner.countpileup()
+    runner.pileupProbes(pa.probeset)
     
 def run():
-
+    run_pileup()
+    
     # pr = cProfile.Profile()
     # pr.enable()
     # # ... do something ...
@@ -67,7 +70,6 @@ def run():
     # ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
     # ps.print_stats()
     # print s.getvalue()
-
     
     pass
     
@@ -132,21 +134,23 @@ class Analysis:
                 if head:
                     head=False
                     continue
-                tag = row[0] # we expect this to be unique name
+                tag = row[0] # we expect this to be unique name, here we use the Amplicon ID
                 if tag not in seen:
                     seen.add(tag)
                 else:
                     LG.error("Duplicated identifier:%s"%tag)
                     sys.exit()
                 gene = row[1]
-                region = row[11].split()
+                region = row[11].split() # this is the target region
                 chrm = region[0]
                 start = int(region[1])
                 end = int(region[2])
+                ampstart = int(row[22].replace(",",""))
+                ampend = int(row[23].replace(",",""))
                 fwseq = row[29]
                 revseq = row[33]
                 amplength = int(row[17])
-                pb = Probe(chrm, start, end, tag, fwseq, revseq, amplength)
+                pb = Probe(chrm, start, end, ampstart, ampend, tag, fwseq, revseq, amplength)
                 pb.setGene(gene)
                 self.probeset[pb.tag] = pb
         LG.info("Loaded %d probes" %(len(self.probeset.keys())))
@@ -176,8 +180,8 @@ class Analysis:
         LG.info("read1 file %s "%fastq_read1)
         LG.info("read2 file %s "%fastq_read2)
         
-        fastq_out_read1 = params["outdir"] + "/" + tag  + "_1.qc.gz"
-        fastq_out_read2 = params["outdir"] + "/" + tag  + "_2.qc.gz"
+        fastq_out_read1 = params["fastq_outdir"] + "/" + tag  + "_1.qc.gz"
+        fastq_out_read2 = params["fastq_outdir"] + "/" + tag  + "_2.qc.gz"
 
         LG.info("read1 output file %s "%fastq_out_read1)
         LG.info("read2 output file %s "%fastq_out_read2)
@@ -267,7 +271,7 @@ class Analysis:
                     mismatch_pairs[id1 + "-" + id2] += 1
 
         R = {"global": counter, "amp": ampcounter, "mismatch": mismatch_pairs, "ampmeta":self.probeset}
-        serial.cdmz(R, "%s/%s.picklez"%(params["outdir"], tag))
+        serial.cdmz(R, "%s/%s.picklez"%(params["fastq_outdir"], tag))
 
         handle1.close()
         handle2.close()
@@ -278,12 +282,12 @@ class Analysis:
         
     def summary_plots(self, index):
         tag = self.fastqtag[index]
-        results = serial.clz("%s/%s.picklez"%(params["outdir"], tag))
+        results = serial.clz("%s/%s.picklez"%(params["fastq_outdir"], tag))
         probes = results["ampmeta"]
         gl = results["global"]
         amp = results["amp"]
         mismatch_pairs = results["mismatch"]
-        with open("%s/%s.csv"%(params["outdir"], tag), "wt") as outfh:
+        with open("%s/%s.csv"%(params["fastq_outdir"], tag), "wt") as outfh:
             gls = [gl.nTotal_read, gl.nQC_read,
                 gl.nLowQreads, gl.nPrimer_MisMatch, gl.nPrimer_NoMatch]
             outfh.write(",".join([str(s) for s in gls]) + "\n")
@@ -295,7 +299,7 @@ class Analysis:
                 outfh.write(",".join([str(r) for r in row]) + "\n")
                 
         from matplotlib.backends.backend_pdf import PdfPages
-        figpath = "%s/%s.pdf"%(params["outdir"], tag)
+        figpath = "%s/%s.pdf"%(params["fastq_outdir"], tag)
         pdf_pages = PdfPages(figpath) # pdf pages
         
         fig = plt.figure()
@@ -353,7 +357,7 @@ class Analysis:
         nMisMatches = []
         nNoMatches = []
         for tag in self.fastqtag:
-            results = serial.clz("%s/%s.picklez"%(params["outdir"], tag))
+            results = serial.clz("%s/%s.picklez"%(params["fastq_outdir"], tag))
             gl = results["global"]
             nTotals.append(gl.nTotal_read)
             nQCs.append(gl.nQC_read)
@@ -375,8 +379,8 @@ class Analysis:
         ax.legend(prop={'size':7})
         ax.set_xticks(xpos+scaler*2*width)
         ax.set_xticklabels(xlabels, rotation='vertical', size='small')
-        plt.savefig("%s/globalsummary.pdf"%(params["outdir"]),  bbox_inches='tight')
-        LG.info("Generated global summary plot %s/globalsummary.pdf"%(params["outdir"]))
+        plt.savefig("%s/globalsummary.pdf"%(params["fastq_outdir"]),  bbox_inches='tight')
+        LG.info("Generated global summary plot %s/globalsummary.pdf"%(params["fastq_outdir"]))
         
     def run_aligner(self, index):
         tag = self.fastqtag[index]
@@ -393,7 +397,7 @@ class Pileup:
     caselist = ['A', 'C', 'G', 'T', 'N', 'I', 'D']
     indel = {"I": 5, "D": 6}
     cases = {0:"A",1:"C",2:"G",3:"T", 4:"N", 5:"I", 6:"D"}
-    nullidx = None
+    nullidx = -1
     n_reporting_cols = len(basepos.keys()) + len(indel.keys())
     readlength = params["readlength"]
     max_noncon_per_read = params["max_noncon_per_read"]
@@ -422,6 +426,8 @@ class Pileup:
         '''classify cigar operation, return index for M'''
         idx = []
         for c in cigar:
+            if c == self.nullidx:
+                idx.append(self.nullidx)
             if int(c) == 1:
                 idx.append(self.indel["I"])
             elif int(c) == 2:
@@ -454,24 +460,41 @@ class Pileup:
         '''return the raw quality score Phred Q score'''
         return [ord(i)-33 for i in ascii_str]
 
-    def countpileup(self):
+    def pileupProbes(self, probeset):
+        samples = ["WTCHG_98544_01", "WTCHG_98544_03", "WTCHG_98544_04", "WTCHG_98544_05", "WTCHG_98544_08", "WTCHG_98544_09", "WTCHG_98544_13"]
+        for sample in samples:
+            bam = "/Users/zd1/volumn/wimm/raindance/bams/%s/%s.sorted.bam"%(sample, sample)
+            samout = "%s/%s"%(params["pileup_outdir"], sample)
+            for pb in probeset.keys():
+                if pb not in ["48", "49", "50"]:
+                    continue
+                self.countpileup(probeset[pb], sample, bam, samout)
+                break
+            break
         
-        tag = "WTCHG_98544_01"
-        bam = "/Users/zd1/mount/wimmhts/raindance/bams/%s/%s.sorted.bam"%(tag, tag)
-#        outdir = "/Users/zd1/mount/wimmhts/raindance/bams/%s"%tag
-        # pileup outdir
-        outdir = "/Users/zd1/Work/projects2/raindance/pileup"
-        samout = "%s/%s"%(params["outdir"], tag)
+    def countpileup(self, probe, sample, bam, samout):
+
+        # tag = "WTCHG_98544_01"
+        # bam = "/Users/zd1/volumn/wimm/raindance/bams/WTCHG_98544_01/%s.sorted.bam"%(tag)
+        # samout = "%s/%s"%(params["pileup_outdir"], tag)
         
+        tag = sample
+        amp = probe.gene
+        ampid = probe.tag
+        chrm= probe.chrm
+        ampstart = probe.ampstart
+        ampend = probe.ampend
+        p0 = probe.start
+        p1 = probe.end
+                
         #FGFR2_5
-        amp = "FGFR2_5"
-        ampid = "48"
-        chrm= "chr10"
-        
-        ampstart = 123279459
-        ampend = 123279658
-        p0 = 123279492
-        p1 = 123279643
+        # amp = "FGFR2_5"
+        # ampid = "48"
+        # chrm= "chr10"
+        # ampstart = 123279459
+        # ampend = 123279658
+        # p0 = 123279492
+        # p1 = 123279643
                 
         # amp = "FGFR2_5"
         # ampid = "49"
@@ -490,14 +513,12 @@ class Pileup:
         # p1 = 123279714
 
         # amp specific dir, too many amps
-
         amptag = amp + '_' + ampid
         ampdir = "%s/amps/%s"%(samout, amptag)
-
+        
         if not os.path.exists(ampdir):
             os.makedirs(ampdir)
         
-                
         assert ampstart < p0 and ampend > p1
         targetsize = p1 - p0
 
@@ -561,7 +582,6 @@ class Pileup:
                         telly.MM,
                         np.array(telly.non_con_frq)[:,np.newaxis]))
         LG.info("finished pileup. exporting data ...")
-        #serial.cdmz(telly, "%s/%s.telly.picklez"%(outdir, tag))
         telly.setRefseq(refseq)
         telly.setRead1pos(read1pos)
         telly.setRead2pos(read2pos)
@@ -639,7 +659,10 @@ class Pileup:
             self.read12freq = []
             self.nQC_read1 = 0
             self.nQC_read2 = 0
-        
+            self.Q_read1 = None
+            self.Q_read2 = None
+            self.badfragments = set()
+            
         def setRefseq(self, refseq):
             self.refseq = refseq
 
@@ -698,15 +721,25 @@ class Pileup:
             finally:
                 fh.close()
             
-    def _count_pileup(self, tag, amp,  ampid, bam, chrm, ampstart, ampend, p0, p1, exp_read2_length, outfile, conseqidx=None):
+    def _count_pileup(self, tag, amp,  ampid, bam, chrm, ampstart, ampend,
+                       p0, p1, exp_read2_length, outfile, conseqidx=None, removebyname = None):
+
+        # if the blacklisted readname is already constructed, do not check consensus again. 
+        if removebyname is not None and len(removebyname) > 0:
+            conseqidx = None
         
         samfile = pysam.Samfile("%s"%bam, "rb" )
         MM = np.zeros((ampend-ampstart, self.n_reporting_cols))
         MM_read1_only = np.zeros((ampend-ampstart, self.n_reporting_cols))
         MM_read2_only = np.zeros((ampend-ampstart, self.n_reporting_cols))
-        
+
+        # base counts from each read
         M_read1 = np.zeros((self.readlength, self.n_reporting_cols))
         M_read2 = np.zeros((self.readlength, self.n_reporting_cols))
+        # qaulity score from each read
+        Q_read1 = np.zeros(ampend-ampstart)
+        Q_read2 = np.zeros(ampend-ampstart)
+        
         read12freq = np.zeros((ampend-ampstart, 2))
         
         M_readbase=[]
@@ -719,13 +752,14 @@ class Pileup:
         nUnpaired = 0
         nLowM = 0
         nLowQbases = 0
+        badfragments = set() # store the read names
         
         telly = self.Pileup_Telly(chrm, ampstart, ampend, p0, p1, self.cases)
         
         checkconsensus = False if conseqidx is None else True
         if checkconsensus:
             LG.info("checking concensus read")
-            
+
         for alignedread in samfile.fetch(chrm, ampstart, ampend):
             
             if nTotal % 10000 == 0:
@@ -762,9 +796,19 @@ class Pileup:
                 continue
             
             seq = alignedread.seq[seqstart:seqend]
+            # this is the base quality
             qual =  self._fastqQuality(alignedread.qual[seqstart:seqend])
-            cigar = self._cigartuple2seq(alignedread.cigar)[seqstart:seqend]
-            
+            if len(alignedread.cigar) > 0:
+                cigar = self._cigartuple2seq(alignedread.cigar)[seqstart:seqend]
+            else:
+                cigar = [self.nullidx]*(seqend-seqstart)
+                
+            # store the quality scores
+            if alignedread.is_read1:
+                Q_read1[rleft:rright] += qual
+            else:
+                Q_read2[rleft:rright] += qual
+                        
             idx = self._baseMidx(seq)
             idx_cigar = self._cigarMidx(cigar)
             
@@ -781,7 +825,16 @@ class Pileup:
             
             read12idx = 0 if alignedread.is_read1 else 1
             read12freq[rleft:rright, read12idx] += 1
-            
+
+            if removebyname is not None:
+                if alignedread.qname in removebyname:
+                    if alignedread.is_read1:
+                        nNonC_read1 += 1
+                    else:
+                        nNonC_read2 += 1
+                    telly.nNonCon += 1
+                    continue
+                
             if checkconsensus:# remove reads with too many non con alleles
                 n_non = 0
                 for i in range(len(idx)):
@@ -793,13 +846,17 @@ class Pileup:
                     else:
                         nNonC_read2 += 1
                     telly.nNonCon += 1
+                    badfragments.add(alignedread.qname)
                     continue
 
             if alignedread.is_read1:
-                MM_read1_only = self._assignM(MM_read1_only, rleft, idx, idx_cigar)
+                try:
+                    MM_read1_only = self._assignM(MM_read1_only, rleft, idx, idx_cigar)
+                except:
+                    pdb.set_trace()
             else:
                 MM_read2_only = self._assignM(MM_read2_only, rleft, idx, idx_cigar)
-
+        
             # here we consider how to combine read1/2
             offset = 0
             if alignedread.is_read2:
@@ -838,7 +895,9 @@ class Pileup:
         telly.read12freq = read12freq
         telly.nQC_read1 = nQC_read1
         telly.nQC_read2 = nQC_read2
-        
+        telly.Q_read1 = Q_read1
+        telly.Q_read2 = Q_read2
+        telly.badfragments= badfragments
         return telly
     
     def _assignM(self, MM, rleft, idx, idx_cigar):
@@ -860,18 +919,29 @@ class Pileup:
         read12freq = telly.read12freq
         idx_hets = telly.idx_hets
         coordinates = telly.coordinates
-        
+
+        avgQ1 = telly.Q_read1*1.0/(read12freq[:,0]+1)
+        avgQ1[100:] = 0 # qual for position beyond read length is 0
+        avgQ2 = telly.Q_read2*1.0/(read12freq[:,1]+1)
+        avgQ2[0:-100] = 0 # qual for position beyond read length is 0
+                
         LG.info("Generating summary plot")
         from matplotlib.backends.backend_pdf import PdfPages
         pdf_pages = PdfPages(imageout) # pdf pages
 
         allMM = [telly.MM, telly.MM_read1_only, telly.MM_read2_only]
-
+        ymax = 0
         for MM in allMM:
-            
             for i in range(MM.shape[0]):
                 MM[i, con_base_colidx[i]] = 0 # don't show concensus base (number too large)
             MM[idx_hets,:] = 0 # don't show hets (number too large)
+            thismax = np.max(MM)
+            if thismax > ymax:
+                ymax = thismax
+        ymax = ymax *1.1
+        
+        # plot non consensus allele frequencies for combined, read1 and read2
+        for MM in allMM:
             fig = plt.figure() # plot on the first page
             ax = plt.subplot(111)
             xpos = np.arange(ampstart,ampend)
@@ -891,6 +961,7 @@ class Pileup:
             for c in self.caselist:
                 patches.append(mpatches.Patch(color=refcolormap[c], label=c))
             ax.legend(handles=patches, prop={'size':7}, title="Concensus Allele")
+            ax.set_ylim(top=ymax)
             plt.setp(ax.get_legend().get_title(),fontsize='xx-small')
             
             ax.set_title("Sam %s, Amp %s ID %s (%s:%d-%d)"%(sam, amp, ampid, chrm, p0, p1),
@@ -903,13 +974,28 @@ class Pileup:
             ax2.set_ylabel('Coverages', color= camblue)
             ax2.plot(xpos, coverages, linestyle= "-", color=camblue)
             ax2.set_ylim(bottom = 0, top = np.max(coverages)*1.1)
-            ax2.set_xlim(right = ampend + 40)
+            ax2.set_xlim(left=ampstart-10, right = ampend + 40)
             for tl in ax2.get_yticklabels():
                 tl.set_color(camblue)
             
             pdf_pages.savefig(fig) # save the figure
             plt.clf()
-            
+
+        # plot the base quality
+        fig = plt.figure()
+        ax = plt.subplot(111)
+        ax.plot(xpos, avgQ1, 'r-', label="read1")
+        ax.plot(xpos, avgQ2, 'y-', label="read2")
+        ax.axvline(x=p0, color='k')
+        ax.axvline(x=p1, color='k')
+        ax.set_xlim(left=ampstart-10, right = ampend + 40)
+        ax.legend()
+        ax.set_title("FASTQ base quality")
+        # plot stuff
+        pdf_pages.savefig(fig, bbox_inches='tight') # save the figure
+        plt.clf()
+        
+        # plot read1 and read2 area
         fig = plt.figure()
         ax = plt.subplot(111)
         ax.plot(xpos, read12freq[:,0], 'r-', label="read1")
@@ -917,6 +1003,7 @@ class Pileup:
         ax.legend()
         # plot stuff
         pdf_pages.savefig(fig, bbox_inches='tight') # save the figure
+        plt.clf()
         pdf_pages.close() # close the file
         LG.info("Done plotting")
         
@@ -1005,17 +1092,20 @@ class Read:
                 
 class Probe:
     '''we also call it amplicon'''
-    def __init__(self, chrm, start, end,
+    def __init__(self, chrm, start, end, ampstart, ampend,
                  tag, fwseq, revseq, amplength):
         self.chrm = chrm
-        self.start = start
-        self.end = end
+        self.start = start # this is the target region
+        self.end = end # this is the target region
+        self.ampstart = ampstart
+        self.ampend = ampend
         self.tag = tag
         self.fwseq = fwseq
         self.revseq = revseq
         self.amplength = amplength
         self.primerseq = None
         self.primerend = None
+        
     def setGene(self, gene):
         self.gene = gene
 
@@ -1121,39 +1211,40 @@ def test():
     pass
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Raindance analysis')
-    parser.add_argument('--fastq', action='store_true', default=False)
-    parser.add_argument('--pileup', action='store_true', default=False)
-    parser.add_argument('--sample', required=True)
-    args = parser.parse_args()
-    print args
     
-    # pr = cProfile.Profile()
-    # pr.enable()
+    # parser = argparse.ArgumentParser(description='Raindance analysis')
+    # parser.add_argument('--fastq', action='store_true', default=False)
+    # parser.add_argument('--pileup', action='store_true', default=False)
+    # parser.add_argument('--sample', required=True)
+    # args = parser.parse_args()
+    # print args
     
-    if args.fastq:
-        # runner = Analysis()
-        # runner.load_seq_index()
-        # runner.load_probe_annotation()
-        # runner.build_hash()
-        # runner.test_hash()
-        # index = 0
-        # runner.scan_fastq(index)
-        # runner.summary_plots(index)
-        print "run fastq"
-    elif args.pileup:
-        print "run pileup"
-        # runner = Pileup()
-        # runner.countpileup()
-    else:
-        print "need to specify --fastq or --pileup"
-        sys.exit(1)
-    # pr.disable()
-    # s = StringIO.StringIO()
-    # sortby = 'cumulative'
-    # ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
-    # ps.print_stats()
-    # print s.getvalue()
+    # # pr = cProfile.Profile()
+    # # pr.enable()
+    
+    # if args.fastq:
+    #     # runner = Analysis()
+    #     # runner.load_seq_index()
+    #     # runner.load_probe_annotation()
+    #     # runner.build_hash()
+    #     # runner.test_hash()
+    #     # index = 0
+    #     # runner.scan_fastq(index)
+    #     # runner.summary_plots(index)
+    #     print "run fastq"
+    # elif args.pileup:
+    #     print "run pileup"
+    #     # runner = Pileup()
+    #     # runner.countpileup()
+    # else:
+    #     print "need to specify --fastq or --pileup"
+    #     sys.exit(1)
+    # # pr.disable()
+    # # s = StringIO.StringIO()
+    # # sortby = 'cumulative'
+    # # ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+    # # ps.print_stats()
+    # # print s.getvalue()
         
 
-#    run()
+    run()

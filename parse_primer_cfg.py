@@ -5,14 +5,15 @@
 #basedir = "/users/mcvean/zd1/volumn/raindance"
 basedir = "/home/crangen/zding/projects/raindance"
 
+
 param = {
-    "ref": "/Users/zd1/mount/wimmhts/common/ref/old/hg19_GRCh37/hg19.fa",
+    "ref": "/Users/zd1/volumn/wimm/common/ref/old/hg19_GRCh37/hg19.fa",
     "samplelist" : "/users/mcvean/zd1/volumn/raindance/meta/samplelist",
     # "ref" : "/users/mcvean/zd1/volumn/common/ref/old/hg19_GRCh37/hg19.fa",
 #    "fastqindex":"%s/fastq.index"%basedir,
     "fastqindex":"%s/fastq.lib1.index"%basedir,
-    "table" : "%s/amplicons.csv"%basedir, 
-    "outdir" : "%s/fastq.qc"%basedir,
+    "table" : "/Users/zd1/cloud/data/raindance/meta/amplicons.csv", 
+    "fastq_outdir" : "%s/fastq.qc"%basedir,
     "imageoutdir" : "%s/pileups_images"%basedir, 
     # parameters:
     "kmersize" : 10,
@@ -25,6 +26,9 @@ param = {
     "probe_search_length": 25,
     "trim_read": 0,
 
+    # pileup out dirs
+    "pileup_outdir": "/Users/zd1/cloud/data/raindance/pileup",
+    
     # pileup filters
     "baseQ_cutoff": 0, # use same cutoff as the one used to process fastq file
     "mapQ_cutoff": 0, # 0-255, -10log10{mapping position is wrong}
