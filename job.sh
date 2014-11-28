@@ -1,15 +1,15 @@
 #!/bin/bash
  
 #$ -N rain
-#$ -q batchq
+#$ -q short.qc
+#$ -P mcvean.prjc
 #$ -V
-#$ -e /home/crangen/zding/projects/raindance/log/$JOB_NAME-$JOB_ID-$TASK_ID.e
-#$ -o /home/crangen/zding/projects/raindance/log/$JOB_NAME-$JOB_ID-$TASK_ID.o
+#$ -wd /users/mcvean/zd1/volumn/raindance/log/
+#$ -e /users/mcvean/zd1/volumn/raindance/log/$JOB_NAME-$JOB_ID-$TASK_ID.e
+#$ -o /users/mcvean/zd1/volumn/raindance/log/$JOB_NAME-$JOB_ID-$TASK_ID.o
+#$ -t 3-288
 
-module load python/2.7.5
-module load bwa
- 
-python /home/crangen/zding/workspace/rain/parse_primer.py 
+python /users/mcvean/zd1/workspace/raindance/parse_primer_make.py
 
 
 

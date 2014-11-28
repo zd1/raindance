@@ -1,0 +1,280 @@
+
+#To look at identifying mutation in Raindance data
+setwd("/Users/zd1/cloud/code/raindance")
+#d<-read.table("primer229.tsv", sep="\t", as.is=T, head=T, colClasses=c("character", "numeric", "character", rep("numeric", 12*4)));
+d<-read.table("raindance.kras.pik3ca.braf.tsv" , sep="\t", as.is=T, head=T, colClasses=c("numeric", "character", "numeric", "character", rep("numeric", 12*4),
+	"character", "character", rep("numeric", 4), rep("character", 26)));
+
+ind<-rep(1:2, times=c(4*8, 4*4));
+lib<-rep(1, 4*12);
+
+n.site<-nrow(d);
+n.ind<-2;
+ind.list<-list();
+slice.ind<-c(8,4);
+ind.list[[1]]<-4:35;
+ind.list[[2]]<-36:51;
+
+#Call genotypes for each site
+as<-array(0, c(n.ind, n.site, 2));
+a.let<-c("A", "C", "G", "T");
+snp.thresh<-0.1;
+ncr<-array(0, c(n.site, n.ind));
+within.chisq.p<-array(0, c(n.site, n.ind));
+n.snps<-0;
+
+d.s.l<-list(length=n.ind);
+lrt.bet.ind<-array(0, c(n.site, 1));
+lrt.wit.ind<-array(0, c(n.site, n.ind));
+
+for (site in 1:n.site) {
+  bc<-5; 
+  for (ind in 1:n.ind) {
+		d.s<-array(as.integer(d[site,bc:(bc+slice.ind[ind]*4-1)]), c(4,slice.ind[ind])); # matrix. row for allele col for sample
+		ts<-apply(d.s, 1, sum, na.rm=T); # sum across rows to get total counts for each sample
+		ts<-ts/sum(ts); # allele frequency
+		o<-order(ts, decreasing=T); # get the order of the allele with highest count
+		as[ind, site, 1]<-o[1]; # index for concensus allele
+		if (ts[o[2]]>=snp.thresh) as[ind,site,2]<-o[2]; # index for elevated allele (allele with second highest count)
+    
+		if (as[ind,site,2]==0) { # second highest allele frq is below snp.threshold, so it is hom
+			cat("\nSite ", site, "\t| Ind ", ind, " | Hom ", a.let[o[1]], "\t| NonConRead = ", signif(100*sum(ts[-o[1]]), 3), 
+				"%", sep="");
+			ncr[site,ind]<-sum(ts[-o[1]]); # non conc allele count
+		} else {
+			cat("\nSite ", site, "\t| Ind ", ind, " | Het ", paste(a.let[o[1:2]], sep=""), "\t| NonConRead = ", signif(100*sum(ts[-o[1:2]]), 3), 
+				"%", sep="");
+			ncr[site,ind]<-sum(ts[-o[1:2]]);
+			n.snps<-n.snps+1;
+		}
+
+		ct<-chisq.test(d.s);
+		within.chisq.p[site,ind]<-ct$p.value;
+
+		d.s.l[[ind]]<-d.s;
+		bc<-bc+slice.ind[ind]*4;
+	}
+
+	#Do LRTs
+	#Combined test ->Project total counts for each sample
+	base.tots<-array(0, c(n.ind, 4)); # allele coverage for each individual
+	read.tots<-rep(0, n.ind); # total coverage for each individual
+	for (ind in 1:n.ind) {
+		base.tots[ind,]<-apply(d.s.l[[ind]], 1, sum, na.rm=T);
+		read.tots[ind]<-sum(d.s.l[[ind]]);		
+	}
+	rt<-apply(base.tots, 1, sum); # coverage across ind 
+	ct<-apply(base.tots, 2, sum); # coverage across allele
+	ex<-rt %*% t(ct) / sum(read.tots); # expected counts
+	lrt.bet.ind[site]<-sum(base.tots*(log(base.tots+1e-6)-log(ex+1e-6)));
+  
+	#Now do within sample test
+	for (ind in 1:n.ind) {
+		rt<-base.tots[ind,];
+		ct<-apply(d.s.l[[ind]], 2, sum, na.rm=T);
+		ex<-rt %*% t(ct) / read.tots[ind];
+		lrt.wit.ind[site,ind]<-sum(d.s.l[[ind]]*(log(d.s.l[[ind]]+1e-6)-log(ex+1e-6)));
+	}
+}
+
+
+#non concensus reads in ind1 vs ind2
+plot(100*ncr, log="xy", xlab="Non Consensus Reads (Ind1 %)", ylab="Non Consensus Reads (Ind2 %)", pch=19, col="blue");
+abline(0,1,col="red");
+cat("\nNo. SNPs = ", n.snps);
+
+
+#Look at LRT tests
+par(mfrow=c(1,n.ind+1));
+qqplot(rchisq(10000, df=(n.ind-1)*3), 2*lrt.bet.ind, pch=19, col="blue", xlab="Expected", ylab="Observed", main="Between ind");
+abline(0,1,col="red", lty="dotted");
+for (ind in 1:n.ind) {
+	qqplot(rchisq(10000, df=(slice.ind[ind]-1)*3), 2*lrt.wit.ind[,ind], pch=19, col="blue", xlab="Expected", ylab="Observed", 
+			main=paste("Within Ind", ind));
+	abline(0,1,col="red", lty="dotted");
+}
+
+#Get p-vals for tests
+p.val<-array(0, c(nrow(lrt.wit.ind), ncol(lrt.wit.ind)+1));
+colnames(p.val)<-c("Within.1", "Within.2", "Between");
+for (ind in 1:n.ind) {
+	p.val[,ind]<- -log10(pchisq(lrt.wit.ind[,ind], df=(slice.ind[ind]-1)*3, lower=F));
+}
+p.val[,3]<- -log10(pchisq(lrt.bet.ind, df=3*(n.ind-1), lower=F));
+zz<-which(apply(p.val, 1, max)>=5)
+par(mfrow=c(1,1));
+
+par(mfrow=c(1,2));
+for (ind in 1:n.ind) {
+	qqplot(-log10(runif(10000)), p.val[,ind], pch=19, col="blue", xlab="Expected", ylab="Observed", 
+			main=paste("Within Ind", ind));
+	abline(0,1,col="red", lty="dotted");
+}
+
+par(mfrow=c(1,1));
+
+plot(p.val[,1:2], xlab="P value Ind1", ylab="P value Ind2", pch=19, col="blue");
+abline(0,1, col="red");
+abline(h=6, lty="dotted");
+abline(v=6, lty="dotted");
+
+#Seem to be lot sof sites where between is strong, but within is not strong -> assume artefact
+
+
+#Find sites that are interesting...
+pval.thresh<-6;
+wi<-which(apply(p.val[,1:2], 1, max)>pval.thresh);
+
+#Try fitting models for sites of interest:
+op<-array(0, c(sum(p.val[,1:2]>pval.thresh), 13));
+colnames(op)<-c("Site", "Ind", "-log10.pval", "LLK.b100", "LLK.b1", "LLK.b0.1", 
+	"LLK.MN", "LLK.SPK", "NT.SPK", "N.Slice.SPK", "Phi.SPK", "LLK.Dirich100", "Fgt0.005");
+ii.ct<-0;
+bs<-c(100, 1, 0.1);
+
+den<-function(x, lambda, beta) {
+	v1<-lambda*beta*log(beta)-lgamma(lambda*beta)-lfactorial(x)+lgamma(x+lambda*beta)-(x+lambda*beta)*log(1+beta);
+	return(v1);
+}
+
+spike.llk<-function(pars, rmj, cmj, rj) {
+
+	pi.all<-c(pars[1:3], 1-sum(pars[1:3]));
+	if (min(pi.all)<0 | max(pi.all)>1.0) return(1e6);
+	a1<-sum(rmj*log(pi.all), na.rm=T);
+	a2<-cmj*log(1-pars[4]);
+	a3<-rj*log((1-sum(pars[1:3])) *(1-pars[4])+pars[4]);
+	return(-(a1+a2+a3));
+}
+
+
+lgamma0<-function(val) {
+	wi<-which(val>1e-16);
+	ret<-rep(0, length(val));
+	ret[wi]<-lgamma(val[wi]);
+	return(ret);
+}
+
+
+for (site in wi) {
+
+	#Read in data
+	bc<-5;
+	for (ind in 1:n.ind) {
+		d.s<-array(as.integer(d[site,bc:(bc+slice.ind[ind]*4-1)]), c(4,slice.ind[ind]));
+		ts<-apply(d.s, 1, sum, na.rm=T);
+		ts<-ts/sum(ts);
+		o<-order(ts, decreasing=T);
+		as[ind, site, 1]<-o[1];
+		if (ts[o[2]]>=snp.thresh) as[ind,site,2]<-o[2];
+
+		if (as[ind,site,2]==0) {
+			cat("\nSite ", site, "\t| Ind ", ind, " | Hom ", a.let[o[1]], "\t| NonConRead = ", signif(100*sum(ts[-o[1]]), 3), 
+				"%", sep="");
+			ncr[site,ind]<-sum(ts[-o[1]]);
+		} else {
+			cat("\nSite ", site, "\t| Ind ", ind, " | Het ", paste(a.let[o[1:2]], sep=""), "\t| NonConRead = ", signif(100*sum(ts[-o[1:2]]), 3), 
+				"%", sep="");
+			ncr[site,ind]<-sum(ts[-o[1:2]]);
+			n.snps<-n.snps+1;
+		}
+
+		d.s.l[[ind]]<-d.s;
+		bc<-bc+slice.ind[ind]*4;
+	}
+
+	base.tots<-array(0, c(n.ind, 4));
+	read.tots<-rep(0, n.ind);
+	for (ind in 1:n.ind) {
+		base.tots[ind,]<-apply(d.s.l[[ind]], 1, sum, na.rm=T);
+		read.tots[ind]<-sum(d.s.l[[ind]]);		
+	}
+
+	#Now do within sample test
+	for (ind in 1:n.ind) if (p.val[site, ind]>pval.thresh) {
+		ii.ct<-ii.ct+1;
+		op[ii.ct,1:3]<-c(site, ind, p.val[site,ind]);
+		rt<-base.tots[ind,];
+		ct<-apply(d.s.l[[ind]], 2, sum, na.rm=T);
+		ex<-rt %*% t(ct) / read.tots[ind] + 1;
+		for (j in 1:3) {
+			ttmp<-den(d.s.l[[ind]]+1, ex, bs[j]);
+			op[ii.ct,3+j]<-sum(ttmp);
+		}
+		
+		data<-d.s.l[[ind]];
+		
+		#Fit null MN model
+		rt<-apply(data, 1, sum);
+		ct<-apply(data, 2, sum);
+		pi.est<-rt/sum(rt);
+
+		#Fit Dirichlet model
+		vv<-100;
+		tmp<-data+pi.est*vv;
+		l.dirich<-ncol(data)*sum(lgamma0(vv*pi.est))-ncol(data)*lgamma0(vv)+sum(lgamma0(vv+ct))-sum(lgamma0(tmp));
+		op[ii.ct,12]<-l.dirich;
+	
+		l.0<- -sum(rt*log(pi.est), na.rm=T);
+		op[ii.ct,7]<-l.0;
+		exd<- (rt/sum(rt)) %*% t(ct);
+		del<-(data-exd)/sqrt(exd);
+
+		#Identify largest deviation
+		oo<-order(del, decreasing=T);
+
+		#Fit model with one NT increased
+		#Find NT with elevated levels
+		nt.elev<-oo[1] %% 4;
+		if (nt.elev==0) nt.elev<-4;
+
+		#Now find slices with del>3 and assign all these as elevated
+		slice.elev<-ceiling(oo[1]/4);
+		set2<-which(del[nt.elev,]>3);
+		slice.elev<-sort(union(slice.elev, set2));
+		rj<-sum(data[nt.elev, slice.elev]);
+		rmj<-rt;
+		rmj[nt.elev]<-rmj[nt.elev]-sum(data[nt.elev, slice.elev]);
+
+		#Reorder so that elevated nucleotide is last element
+		rmj[c(4,nt.elev)]<-rmj[c(nt.elev, 4)]
+
+		cmj<-sum(ct[slice.elev]-data[nt.elev, slice.elev]);
+
+		#Initialise values
+		pi.init<-pi.est;
+		pi.init[c(4,nt.elev)]<-pi.init[c(nt.elev, 4)]
+		opp<-optim(par=c(pi.init[1:3], 0.01), fn=spike.llk, rmj=rmj, cmj=cmj, rj=rj);
+		l.1<-spike.llk(opp$par, rmj=rmj, cmj=cmj, rj=rj);
+		op[ii.ct,8]<-l.1;
+		op[ii.ct,9]<-nt.elev;
+		op[ii.ct,10]<-length(slice.elev);
+		op[ii.ct,11]<-opp$par[4];
+		}
+
+		#Fit model with 2 slices elevated
+
+		#Calculate 'purity'
+		fs<-t(data)/ct;
+		op[ii.ct,13]<-(sum(fs>0.005)-ncol(data))/prod(dim(data));
+
+}
+
+
+plot(op[,7]-op[,12], op[,7]-op[,8], pch=19, col="blue", xlab="LLK gain noisy model", ylab="LLK gain spike model");
+ww<-which(op[,13]>0.1);
+points(op[ww,7]-op[ww,12], op[ww,7]-op[ww,8], pch=19, col="green");
+abline(0,1, col="red");
+abline(11.5,1, lty="dotted", col="red");
+
+
+#ind <- which((op[,7]-op[,12]) < (op[,7]-op[,8]))
+#difference <- (op[,7]-op[,8]) - (op[,7]-op[,12])
+
+
+
+
+
+
+
+
