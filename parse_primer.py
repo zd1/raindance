@@ -1,7 +1,10 @@
 import sys
 import os
-sys.path.append(os.environ['MYPYTHONPATH'])
 
+if not os.environ.has_key('MYPYTHONPATH'):
+    sys.path.append('/Users/zd1/cloud/code/tools/src')
+else:    
+    sys.path.append(os.environ['MYPYTHONPATH'])
 
 import numpy as np
 import h5py
@@ -42,33 +45,21 @@ def run_pileup():
     pa = Analysis()
     pa.load_probe_annotation()
     runner = Pileup()
-    runner.pileupProbes(pa.probeset)
+    runner.pileupProbes_test(pa.probeset)
+
+def run_combine():
+    LG.info("doing summary")
+    pa = Analysis()
+    pa.load_probe_annotation()
+    runner = Pileup()
+    runner.combine_pileup(pa.probeset)
+
+def viz():
+    runner = Pileup()
+    runner.visualize()
     
 def run():
-    run_pileup()
-    
-    # pr = cProfile.Profile()
-    # pr.enable()
-    # # ... do something ...
-    
-    # index = int(os.environ['SGE_TASK_ID']) - 1
-    # runner = Analysis()
-    # runner.load_seq_index()
-    # runner.load_probe_annotation()
-    # runner.build_hash()
-    # runner.test_hash()
-    # runner.scan_fastq(index)
-    # runner.summary_plots(index)
-    # runner.run_aligner(index)
-    # run_pileup(index)
-    
-    # pr.disable()
-    # s = StringIO.StringIO()
-    # sortby = 'cumulative'
-    # ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
-    # ps.print_stats()
-    # print s.getvalue()
-    
+    viz()
     pass
     
 class Analysis:
@@ -492,6 +483,100 @@ class Pileup:
                 LG.error("amplicon %s doesn't exist in amplicon list %s"%(s, params["table"]))
         ofh.close()
         return subamps
+
+    def _findCommonVariants(self, MM):
+        
+        n_sample, n_pos, n_feature = MM.shape
+        common = []
+        for s in range(n_sample):
+            for p in range(n_pos):
+                bases = MM[s,p,:4]
+                bi = np.argsort(bases)[::-1]
+                # exclude concensus allele
+                common.append([s,p,bi[0]])
+                if sum(bases) != 0:
+                    # use frq 10% to define a het, if so, exclude the whole pos
+                    if sum(bases[bi[1:]]) > sum(bases)*0.1:
+                        for i in range(len(bi)):
+                            common.append([s,p, bi[i]])
+        return common
+
+    def _clearCommon(self, MM, common):
+        for s,p,i in common:
+            MM[s,p,i] = 0
+        return MM
+    
+    def visualize(self):
+        LG.info("generating summary plot")
+        from matplotlib.backends.backend_pdf import PdfPages
+        ampkey = "49:FGFR2_5:chr10:123279547-123279684"
+        pdf_pages = PdfPages("/Users/zd1/cloud/data/raindance/pileup/sum/%s.pdf"%ampkey)
+        #fh = h5py.File(params["pileup_sum"], 'r')
+        fh = h5py.File("/Users/zd1/volumn/wt/raindance/pileups/all/all.hd5",'r')
+        bases = ['A', 'C', 'G', 'T']
+        posidx = fh[ampkey]['target_index']
+
+        read1 = fh[ampkey]['pileup_read1'][:]
+        common = self._findCommonVariants(read1)
+        read1 = self._clearCommon(read1,common)
+        
+        for i in range(len(bases)):
+            fig = plt.figure() 
+            ax = plt.subplot(111)
+            ax.imshow(read1[:,posidx,i], interpolation='nearest', vmin=0)
+            ax.set_xlabel("Positions")
+            ax.set_ylabel("Samples")
+            ax.set_title("%s base:%s"%(ampkey, bases[i]))
+            pdf_pages.savefig(fig)
+            
+        fig = plt.figure() 
+        ax = plt.subplot(111)
+        data = fh[ampkey]['pileup_read1'][:]
+        datasum = np.sum(data[posidx,:,:4], axis=2)
+        ax.imshow(datasum)
+        ax.set_xlabel("Positions")
+        ax.set_ylabel("Samples")
+        ax.set_title("%s read1"%ampkey)
+        pdf_pages.savefig(fig)
+
+        fig = plt.figure() 
+        ax = plt.subplot(111)
+        data = fh[ampkey]['pileup_read2'][:]
+        datasum = np.sum(data[posidx,:,:4], axis=2)
+        ax.imshow(datasum)
+        ax.set_xlabel("Positions")
+        ax.set_ylabel("Samples")
+        ax.set_title("%s read2"%ampkey)
+        pdf_pages.savefig(fig)
+
+        fig = plt.figure() 
+        ax = plt.subplot(111)
+        data = fh[ampkey]['coverages'][:, posidx]
+        ax.imshow(data)
+        ax.set_xlabel("Positions")
+        ax.set_ylabel("Samples")
+        ax.set_title("%s coverages"%ampkey)
+        pdf_pages.savefig(fig)
+
+        fig = plt.figure() 
+        ax = plt.subplot(111)
+        data = fh[ampkey]['qual_read1'][:, posidx]
+        ax.imshow(data)
+        ax.set_xlabel("Positions")
+        ax.set_ylabel("Samples")
+        ax.set_title("%s qual read1"%ampkey)
+        pdf_pages.savefig(fig)
+
+        fig = plt.figure() 
+        ax = plt.subplot(111)
+        data = fh[ampkey]['qual_read2'][:, posidx]
+        ax.imshow(data)
+        ax.set_xlabel("Positions")
+        ax.set_ylabel("Samples")
+        ax.set_title("%s qual read2"%ampkey)
+        pdf_pages.savefig(fig)
+        
+        pdf_pages.close() # close the file        
         
     def combine_pileup(self, probeset, amplist=None, samplelist=None):
         '''merge amps across samples into an integrated dataset'''
@@ -504,89 +589,132 @@ class Pileup:
         if samplelist is not None:
             samples = self._sub_sample(samplelist)
         else:
+            self.loadsamples()
             samples = self.samples
-
-        out = "%s/all"%(params["pileup_outdir"])
-        if not  os.path.exists(out):
+        
+        LG.info("merging results for %d amplicons for %d samples"%(len(amps), len(samples)))
+        
+        h5pyout = params["pileup_sum"]
+        out = "/".join(h5pyout.split("/")[0:-1])
+        #out = "/Users/zd1/cloud/data/raindance/pileup/sum"
+        if not os.path.exists(out):
             os.mkdir(out)
-            
-        h5pyout = "%s/all.hd5"%(out)
+
+        if os.path.exists(h5pyout):
+            os.remove(h5pyout)
+        
         fh = h5py.File(h5pyout, "w")
+            
+        LG.info("write results to %s"%(out))
+        LG.info("hd5 file to %s"%(h5pyout))
         
         variables = ["nUnpaired", "nLowM", "nLowQbases", "nNonCon", "nQC", "nQC_read1", "nQC_read2"]
         
         M_variables = np.zeros((len(samples), len(amps), len(variables)))
-
+        
         for i in range(len(samples)):
             sample = samples[i]
             samout = "%s/%s"%(params["pileup_outdir"], sample)
             samh5pyout = "%s/%s.MM.hd5"%(samout, sample)
-            try:
-                samfh = h5py.File(samh5pyout, "r")
+            LG.info("fectching results from  %s"%samh5pyout)
             
-                for a in range(len(amps)):
-                    amp = amps[a]
-                    ampkey = "%s:%s:%s:%s-%s"%(probeset[amp].tag, probeset[amp].gene, probeset[amp].chrm, probeset[amp].p0, probeset[amp].p1)
-                
-                    ampstart = probeset[amp].ampstart
-                    ampend = probeset[amp].ampend
-                    ampend += 1
-                    
-                    refseq = np.zeros(ampend-ampstart)
-                    
-                    if ampkey not in fh:
-                        grp = fh.create_group(ampkey)
-                        MM_amp = np.zeros((len(samples), ampend-ampstart, len(self.caselist)))
-                        MM_amp_read1 = np.zeros((len(samples), ampend-ampstart, len(self.caselist)))
-                        MM_amp_read2 = np.zeros((len(samples), ampend-ampstart, len(self.caselist)))
-                                            
-                        conseq = np.zeros((len(samples), ampend-ampstart))
-                        read1pos = np.zeros((len(samples), ampend-ampstart))
-                        read2pos = np.zeros((len(samples), ampend-ampstart))
-                        qual1 = np.zeros((len(samples), ampend-ampstart)) # check if needs to be normalised
-                        qual2 = np.zeros((len(samples), ampend-ampstart))
-                        coverages = np.zeros((len(samples), ampend-ampstart))
-                        # create init matrix for these
-                        grp.create_dataset('%s/pileup'%ampkey, data = MM_amp, chunks=True,compression='gzip')
-                        grp.create_dataset('%s/pileup_read1'%ampkey, data = MM_amp_read1, chunks=True,compression='gzip')
-                        grp.create_dataset('%s/pileup_read2'%ampkey, data = MM_amp_read2, chunks=True,compression='gzip')
-                        grp.create_dataset('%s/qual_read1'%ampkey, data = qual1, chunks=True,compression='gzip')
-                        grp.create_dataset('%s/qual_read2'%ampkey, data = qual2, chunks=True,compression='gzip')
-                        grp.create_dataset('%s/coverages'%ampkey, data = coverages, chunks=True,compression='gzip')
-                        grp.create_dataset('%s/consensus_seq'%ampkey, data = conseq, chunks=True,compression='gzip')
-                        # these only need to be set once
-                        grp.create_dataset('%s/refseq'%ampkey, data = samfh['%s/refseq'%ampkey], chunks=True,compression='gzip')
-                        grp.create_dataset('%s/target_index'%ampkey, data = samfh['%s/target_index'%ampkey], chunks=True,compression='gzip')
+            samfh = h5py.File(samh5pyout, "r")
+            for a in range(len(amps)):
+                if a%20 ==0:
+                    LG.info("fetched %d amplicons"%a)
 
-                    # sam specific data
-                    fh["%s/pileup_read1"%ampkey][i,:,:] = samfh['%s/pileup_read1'%ampkey][:,:]
-                    fh["%s/pileup_read2"%ampkey][i,:,:] = samfh['%s/pileup_read2'%ampkey][:,:]
-                    fh["%s/qual_read1"%ampkey][i,:,:] = samfh['%s/qual_read1'%ampkey][:,:]
-                    fh["%s/qual_read2"%ampkey][i,:,:] = samfh['%s/qual_read2'%ampkey][:,:]
-                    fh["%s/coverages"%ampkey][i,:,:] = samfh['%s/coverages'%ampkey][:,:]
-                    fh["%s/consensus_seq"%ampkey][i,:,:] = samfh['%s/coverages'%ampkey][:,:]
-                    
-                    # summary variables
-                    for v in range(len(variables)):
-                        M_variables[i,a,v] = fh['%s/pileup'%ampkey].attrs[variables[v]]
+                amp = amps[a]
+                ampkey = "%s:%s:%s:%s-%s"%(probeset[amp].tag, probeset[amp].gene, probeset[amp].chrm, probeset[amp].start, probeset[amp].end)
+                LG.info("%s - %s"%(sample, ampkey))
+                if ampkey not in samfh: # amplicon not in this sample
+                    LG.info("%s not in sample file"%(ampkey))
+                    continue
+
+                ampstart = probeset[amp].ampstart
+                ampend = probeset[amp].ampend
+                ampend += 1
+
+                refseq = np.zeros(ampend-ampstart)
+
+                if ampkey not in fh:
+                    grp = fh.create_group(ampkey)
+                    MM_amp = np.zeros((len(samples), ampend-ampstart, len(self.caselist)))
+                    MM_amp_read1 = np.zeros((len(samples), ampend-ampstart, len(self.caselist)))
+                    MM_amp_read2 = np.zeros((len(samples), ampend-ampstart, len(self.caselist)))
+
+                    conseq = np.zeros((len(samples), ampend-ampstart))
+                    read1pos = np.zeros((len(samples), ampend-ampstart))
+                    read2pos = np.zeros((len(samples), ampend-ampstart))
+                    qual1 = np.zeros((len(samples), ampend-ampstart)) # check if needs to be normalised
+                    qual2 = np.zeros((len(samples), ampend-ampstart))
+                    coverages = np.zeros((len(samples), ampend-ampstart))
+                    # create init matrix for these
+                    grp.create_dataset('pileup', data = MM_amp, chunks=True,compression='gzip')
+                    grp.create_dataset('pileup_read1', data = MM_amp_read1, chunks=True,compression='gzip')
+                    grp.create_dataset('pileup_read2', data = MM_amp_read2, chunks=True,compression='gzip')
+                    grp.create_dataset('qual_read1', data = qual1, chunks=True,compression='gzip')
+                    grp.create_dataset('qual_read2', data = qual2, chunks=True,compression='gzip')
+                    grp.create_dataset('coverages', data = coverages, chunks=True,compression='gzip')
+                    grp.create_dataset('consensus_seq', data = conseq, chunks=True,compression='gzip')
+                    # these only need to be set once
+                    grp.create_dataset('refseq', data = samfh['%s/refseq'%ampkey], chunks=True,compression='gzip')
+                    grp.create_dataset('target_index', data = samfh['%s/target_index'%ampkey], chunks=True,compression='gzip')
+
+
+                fh["%s/pileup_read1"%ampkey][i,] = samfh['%s/pileup_read1'%ampkey]
+                fh["%s/pileup_read2"%ampkey][i,] = samfh['%s/pileup_read2'%ampkey]
+                fh["%s/qual_read1"%ampkey][i,] = samfh['%s/qual_read1'%ampkey]
+                fh["%s/qual_read2"%ampkey][i,] = samfh['%s/qual_read2'%ampkey]
+                fh["%s/coverages"%ampkey][i,] = samfh['%s/coverages'%ampkey]
+                fh["%s/consensus_seq"%ampkey][i,] = samfh['%s/coverages'%ampkey]
+    
+
+                # summary variables
+                for v in range(len(variables)):
+                    M_variables[i,a,v] = samfh['%s/pileup'%ampkey].attrs[variables[v]]
                             
-            finally:
+            try:
                 samfh.close()
+            except:
+                LG.error("problem in closing %s, maybe truncated file"%samh5pyout)
+        try:
+            fh.close()
+        except:
+            LG.error("problem in closing %s"%h5pyout)
+            
 
-        fh.close()
-
-    def pileupProbes(self, probeset, sample, amplistfile = None):
+    def _isProbeDone(self, samout, amp, ampid):
+        # pileups/WTCHG_107218_01/amps/NRAS_1_7/WTCHG_107218_01.NRAS_1.7.pdf
+        ampdir = "%s/amps"%samout
+        ampdir += "/%s_%s"%(amp,ampid)
+        ampdir += "/%s.%s.%s.pdf"%(sample, amp,ampid)
+        if os.path.exists(ampdir):
+            return True
+        else:
+            return False
+    
+    def pileupProbes(self, probeset, sample, amplistfile = None, remainOnly=True):
         bam = params["bamdir"]+"/%s/%s.sorted.bam"%(sample, sample)
         if not os.path.exists(bam):
             LG.error("can't find bam file %s"%bam)
             sys.exit(1)
-        
-        samout = "%s/%s"%(params["pileup_outdir"], sample)
-        h5pyout = "%s/%s.MM.hd5"%(samout, sample)
-        if os.path.exists(h5pyout):
-            os.remove(h5pyout)
 
         amps = []
+                
+        samout = "%s/%s"%(params["pileup_outdir"], sample)
+        h5pyout = "%s/%s.MM.hd5"%(samout, sample)
+        if not remainOnly:
+            if os.path.exists(h5pyout):
+                os.remove(h5pyout)
+        else:
+            for pb in probeset.keys():
+                amp = probeset[pb].gene
+                ampid = probeset[pb].tag
+                if not self._isProbeDone(samout, amp, ampid):
+                    amps.append(pb)
+            LG.info("%d amplicon for %s not completed. redo it"%(len(amps),sample))
+            LG.info(amps)
+            
         if amplistfile is not None:
             ofh = open(amplistfile)
             amps = []
@@ -596,7 +724,10 @@ class Pileup:
                     amps.append(a)
                 else:
                     LG.error("amp %s not found in amp list %s"%(a, params["table"]))
-
+                    
+                    
+        LG.info("Scan %d amplicons for sample %s"%(len(amps), sample))
+        
         if len(amps) > 0:
             for pb in amps:
                 self.countpileup(probeset[pb], sample, bam, samout, h5pyout)
@@ -605,15 +736,15 @@ class Pileup:
                 self.countpileup(probeset[pb], sample, bam, samout, h5pyout)
         
     def pileupProbes_test(self, probeset):
-        samples = ["WTCHG_98544_05", "WTCHG_98544_03", "WTCHG_98544_05", "WTCHG_98544_08", "WTCHG_98544_09", "WTCHG_98544_13"]
+        samples = ["WTCHG_98550_01", "WTCHG_98544_05", "WTCHG_98544_08", "WTCHG_98544_09", "WTCHG_98544_13"]
         for sample in samples:
-            bam = "/Users/zd1/volumn/wimm/raindance/bams/%s/%s.sorted.bam"%(sample, sample)
+            bam = "/Users/zd1/volumn/wt/raindance/bams/%s/%s.sorted.bam"%(sample, sample)
             samout = "%s/%s"%(params["pileup_outdir"], sample)
             h5pyout = "%s/%s.MM.hd5"%(samout, sample)
             if os.path.exists(h5pyout):
                 os.remove(h5pyout)
             for pb in probeset.keys():
-                if pb not in ["175"]:
+                if pb not in ["217"]:
                     continue
                 self.countpileup(probeset[pb], sample, bam, samout, h5pyout)
             break
@@ -659,6 +790,7 @@ class Pileup:
         fa = Fasta(params["ref"])
         refseq =  fa.get_sequence_by_region(chrm, ampstart, ampend)
         refseq = refseq[:-1] # remove one bp, samtools gives inclusive for both ends
+        
         LG.info("ref sequence %d basepairs"% len(refseq))
         LG.info("extracted reference sequence %s"%refseq)
         
@@ -669,6 +801,12 @@ class Pileup:
         # elevated non ref alleles in either read of the read pair. 
         tellyraw = self._count_pileup(tag, amp,  ampid, bam, chrm, ampstart,
                                       ampend, p0, p1, midpoint, outfile, conseq=refseq)
+        
+        if tellyraw.nQC == 0 or tellyraw.nQC_read1 == 0 or tellyraw.nQC_read2 == 0 :
+            # this happens to some amplicons, such as NF1_1 (199)
+            LG.error("can't find any reads for this amplicon %s %s %s "%(tag, amp, ampid))
+            return
+
         LG.debug("Identified low quality fragments %d"%(len(tellyraw.badfragments)))
 
         # result scan. this scan removes fragments from black list. 
@@ -685,6 +823,7 @@ class Pileup:
         # pass
         LG.info("total number of reads %d"%(telly.nTotal))
         LG.info("total number of reads after QC %d"%(telly.nQC))
+        
         LG.info(" unpaired reads  %d"%(telly.nUnpaired))
         LG.info(" low mapping quality reads  %d"%(telly.nLowM))
         LG.info(" low quality bases normalised by reads %f"%(telly.nLowQbases*1.0/telly.nQC))
@@ -696,12 +835,14 @@ class Pileup:
                         telly.MM,
                         np.array(telly.non_con_frq)[:,np.newaxis]))
         LG.info("finished pileup. exporting data ...")
+        
         telly.setRefseq(refseq)
         telly.setRead1pos(read1pos)
         telly.setRead2pos(read2pos)
         telly.store_data(h5pyout)
         self._writeMM(RM, tag, amp, chrm, ampstart, ampend, p0, p1, refseq, exp_read1_length, exp_read2_length, read1pos, read2pos, "%s/%s.%s.MM.out"%(ampdir, tag, ampid))
         self._writeMM(RM, tag, amp, chrm, ampstart, ampend, p0, p1, refseq, exp_read1_length, exp_read2_length, read1pos, read2pos, "%s/%s.%s.MM.candidates.out"%(ampdir, tag, ampid), telly.idx_candidates)
+        LG.info("finished pileup. plotting ... ")
         self._plotMM(tag, amp, ampid, telly, "%s/%s.%s.%s.pdf"%(ampdir, tag, amp, ampid))
         LG.info("Done.")
         
@@ -817,7 +958,10 @@ class Pileup:
                 self.idx_con = np.argmax(row)
                 self.con_base_colidx.append(self.idx_con)
                 s = sum(row)
-                nf = (s - row[self.idx_con])*1.0/s
+                if s == 0:
+                    nf = 0
+                else:
+                    nf = (s - row[self.idx_con])*1.0/s
                 self.coverages.append(s)
                 self.con_bases.append(self.cases[self.idx_con])
                 self.non_con_frq.append(nf)
@@ -830,11 +974,13 @@ class Pileup:
             '''here we store for each sample'''
             ampkey = "%s:%s:%s:%s-%s"%(self.ampid, self.ampname, self.chrm, self.p0, self.p1)
             targetindex = []
-            region = range(self.ampstart - self.ampend)
+            region = range(self.ampstart, self.ampend)
             for i in range(len(region)):
                 if region[i] >= self.p0 and region[i] <= self.p1:
                     targetindex.append(i)
-                
+            LG.info("target index:")
+            LG.info(targetindex)
+            
             try:
                 fh = h5py.File(samdatafile, "a")
                 if ampkey in fh:
@@ -845,7 +991,6 @@ class Pileup:
                 fh.create_dataset('%s/pileup_read2'%ampkey, data = self.MM_read2_only, chunks=True,compression='gzip')
                 fh.create_dataset('%s/consensus_seq'%ampkey, data = self.con_bases, chunks=True,compression='gzip')
                 fh.create_dataset('%s/noncon_frq'%ampkey, data = self.non_con_frq, chunks=True,compression='gzip')
-                fh.create_dataset('%s/preliminary_can'%ampkey, data = self.idx_candidates, chunks=True,compression='gzip')
                 fh.create_dataset('%s/read12frq'%ampkey, data = self.read12freq, chunks=True,compression='gzip')
                 fh.create_dataset('%s/coverages'%ampkey, data = self.coverages, chunks=True,compression='gzip')
                 fh.create_dataset('%s/refseq'%ampkey, data = list(self.refseq), chunks=True,compression='gzip')
@@ -1136,6 +1281,7 @@ class Pileup:
         ax.plot(xpos, avgQ2, 'y-', label="read2")
         ax.axvline(x=p0, color='k')
         ax.axvline(x=p1, color='k')
+        ax.set_ylim(bottom = 0)
         ax.set_xlim(left=ampstart-10, right = ampend + 40)
         ax.legend()
         ax.set_title("FASTQ base quality")
@@ -1154,6 +1300,7 @@ class Pileup:
         plt.clf()
         pdf_pages.close() # close the file
         LG.info("Done plotting")
+        plt.close('all')
         
     def _writeMM(self, MM, sam, amp, chrm, ampstart, ampend, p0, p1, refseq,
                  exp_read1_length, exp_read2_length, read1pos, read2pos, outfile, idx=None):
@@ -1206,7 +1353,7 @@ class Fasta:
                 seq += line
             if not line:
                 break
-        return seq
+        return seq.upper()
     
 class SummaryCounter:
     def __init__(self):
@@ -1359,33 +1506,49 @@ def test():
 
 if __name__ == '__main__':
     
-    parser = argparse.ArgumentParser(description='Raindance analysis')
-    parser.add_argument('--fastq', action='store_true', default=False)
-    parser.add_argument('--pileup', action='store_true', default=False)
-    parser.add_argument('--sample', required=True)
-    parser.add_argument('--amplist', required=False, default= None)
-    args = parser.parse_args()
-    LG.info(args)
+    # parser = argparse.ArgumentParser(description='Raindance analysis')
+    # parser.add_argument('--fastq', action='store_true', default=False)
+    # parser.add_argument('--pileup', action='store_true', default=False)
+    # parser.add_argument('--sum', action='store_true', default=False)
+    # parser.add_argument('--sample', default = None)
+    # parser.add_argument('--amplist', required=False, default= None)
+    # args = parser.parse_args()
+    # LG.info(args)
     
-    sample = args.sample
-    
-    if args.fastq:
-        LG.info("processing fastq")
-        runner = Analysis()
-        runner.load_seq_index()
-        runner.load_probe_annotation()
-        runner.build_hash()
-        runner.scan_fastq(sample)
-        runner.summary_plots(sample)
-    elif args.pileup:
-        LG.info("doing pileup")
-        pa = Analysis()
-        pa.load_probe_annotation()
-        amplistfile = args.amplist
-        runner = Pileup()
-        runner.pileupProbes(pa.probeset, sample, amplistfile)
-    else:
-        print "need to specify --fastq or --pileup"
-        sys.exit(1)
+    # sample = args.sample
 
-    # run()
+    # try:
+    #     if args.fastq:
+    #         LG.info("processing fastq")
+    #         if sample is None:
+    #             LG.error("must specify sample")
+    #             sys.exit(1)
+    #         runner = Analysis()
+    #         runner.load_seq_index()
+    #         runner.load_probe_annotation()
+    #         runner.build_hash()
+    #         runner.scan_fastq(sample)
+    #         runner.summary_plots(sample)
+    #     elif args.pileup:
+    #         LG.info("doing pileup")
+    #         if sample is None:
+    #             LG.error("must specify sample")
+    #             sys.exit(1)
+    #         pa = Analysis()
+    #         pa.load_probe_annotation()
+    #         amplistfile = args.amplist
+    #         runner = Pileup()
+    #         runner.pileupProbes(pa.probeset, sample, amplistfile)
+    #     elif args.sum:
+    #         LG.info("doing summary")
+    #         pa = Analysis()
+    #         pa.load_probe_annotation()
+    #         runner = Pileup()
+    #         runner.combine_pileup(pa.probeset)
+    #     else:
+    #         print "need to specify --fastq, --pileup or --sum"
+    #         sys.exit(1)
+    # except:
+    #     sys.exit(1)
+        
+    run()
