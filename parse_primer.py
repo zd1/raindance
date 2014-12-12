@@ -23,6 +23,16 @@ matplotlib.use('PDF')
 import pylab
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+
+plparams = {
+'axes.labelsize': 21,
+'font.size': 10,
+'legend.fontsize': 20,
+'xtick.labelsize': 20,
+'ytick.labelsize': 20,
+'text.usetex': False}
+plt.rcParams.update(plparams)
+
 import pysam
 import subprocess
 import argparse
@@ -56,7 +66,7 @@ def run_combine():
 
 def viz():
     runner = Pileup()
-    runner.visualize()
+    runner.viz_pilot()
     
 def run():
     viz()
@@ -505,78 +515,212 @@ class Pileup:
         for s,p,i in common:
             MM[s,p,i] = 0
         return MM
-    
-    def visualize(self):
-        LG.info("generating summary plot")
+
+    def sum_export(self, ampkey, MM, M_quality, samplelist, chrm, positions, refseq, out):
+        '''MM dimensions. samples, positions, bases'''
+        positions = np.array(positions)[:,np.newaxis]
+        refseq = np.array(refseq)[:,np.newaxis]
+        nsam, npos, nbase = MM.shape
+        chrmcol = np.array([chrm]*npos)[:, np.newaxis]
+        keycol = np.array([ampkey]*npos)[:, np.newaxis]
+        
+        MM2d = np.zeros((npos,nsam*5)) # also export base quality
+        
+        headers = ['ID', 'Chrm','Pos', 'Ref']
+        for s in range(nsam):
+            for b in range(4):
+                headers.append(samplelist[s] + "_" + self.cases[b])
+            headers.append(samplelist[s] + "_baseQ")
+            
+        for i in range(npos):
+            for j in range(nsam):
+                for k in range(4):
+                    MM2d[i,j*5+k] = MM[j,i,k]
+                MM2d[i, j*5+4] = M_quality[j,i]
+        
+        MM_out = np.hstack((keycol, chrmcol, positions, refseq, MM2d))
+        MM_out = np.vstack((np.array(headers), MM_out))
+        np.savetxt(out, MM_out, delimiter=',', fmt="%s")
+        
+    def viz_pilot(self):
+        keys = ["49:FGFR2_5:chr10:123279547-123279684",
+                "174:KRAS:chr12:25398189-25398313",
+                "50:FGFR2_5:chr10:123279598-123279714",
+                "175:KRAS:chr12:25398214-25398362",
+                "48:FGFR2_5:chr10:123279481-123279643",
+                "343:FGFR3_15:chr4:1806002-1806157",
+                "344:FGFR3_15:chr4:1806152-1806256",
+                "25:AKT3_7:chr1:243776950-243776991",
+                "26:AKT3_7:chr1:243776990-243777014",
+                "500:SETBP1:chr18:42531859-42531961",
+                "158:PTPN11_1:chr12:112919857-112920002"]
+        n = 4
+        i = 0
+        for ampkey in keys:
+            self.visualize(ampkey)
+            i += 1
+            if i==n:
+                break
+        
+    def visualize(self, ampkey):
+        LG.info("sum for %s"%ampkey)
         from matplotlib.backends.backend_pdf import PdfPages
-        ampkey = "49:FGFR2_5:chr10:123279547-123279684"
-        pdf_pages = PdfPages("/Users/zd1/cloud/data/raindance/pileup/sum/%s.pdf"%ampkey)
+        ampid, gene, chrm, region = ampkey.split(":")
+        targetstart, targetend = region.split("-")
+        targetstart = int(targetstart)
+        targetend = int(targetend)
+        pos = range(targetstart, targetend+1)
+        self.loadsamples()
+        outdir = "/Users/zd1/cloud/data/raindance/pileup/sum/%s"%ampkey
+        if not os.path.exists(outdir):
+            os.mkdir(outdir)
+            
+        pdf_pages = PdfPages("%s/%s.pdf"%(outdir,ampkey))
         #fh = h5py.File(params["pileup_sum"], 'r')
         fh = h5py.File("/Users/zd1/volumn/wt/raindance/pileups/all/all.hd5",'r')
         bases = ['A', 'C', 'G', 'T']
         posidx = fh[ampkey]['target_index']
-
-        read1 = fh[ampkey]['pileup_read1'][:]
-        common = self._findCommonVariants(read1)
-        read1 = self._clearCommon(read1,common)
+        pileup = fh[ampkey]['pileup'][:]
+        pileup = pileup[:, posidx, :] # keep only the target region
+        refseq = fh[ampkey]['refseq'][posidx]
         
+        allcov = fh[ampkey]['coverages'][:]        
+        qual1 = fh[ampkey]['qual_read1'][:]/allcov
+        qual2 = fh[ampkey]['qual_read2'][:]/allcov
+        qual = self._joinQmatrix(qual1, qual2)
+        self.sum_export(ampkey, pileup, qual[:,posidx], self.samples,chrm, pos, refseq, "%s/%s.csv"%(outdir,ampkey))
+
+        common = self._findCommonVariants(pileup)
+        pileup = self._clearCommon(pileup,common)
+
         for i in range(len(bases)):
-            fig = plt.figure() 
+            fig = plt.figure(figsize=(20,20)) 
             ax = plt.subplot(111)
-            ax.imshow(read1[:,posidx,i], interpolation='nearest', vmin=0)
+            ax1 = ax.twiny()
+            im = ax.imshow(pileup[:,:,i], interpolation='nearest',
+                      aspect="auto", vmin=0, vmax=300, extent=[targetstart, targetend, 1, len(self.samples)])
+            # Now adding the colorbar
+            fig.subplots_adjust(right=0.8)
+            cbar_ax = fig.add_axes([0.85, 0.15, 0.05, 0.7])
+            cbar_ax.set_aspect(4)
+            fig.colorbar(im, cax=cbar_ax)
+            #plt.colorbar(im, orientation='horizontal')
             ax.set_xlabel("Positions")
             ax.set_ylabel("Samples")
-            ax.set_title("%s base:%s"%(ampkey, bases[i]))
-            pdf_pages.savefig(fig)
+            #ax.set_title("%s base:%s"%(ampkey, bases[i]))
             
-        fig = plt.figure() 
+            tick_locations = np.arange(len(pos))
+            ax1.set_xticks(tick_locations)
+            ax1.set_xticklabels(refseq, size = 10)
+            ax1.set_xlabel("%s base:%s"%(ampkey, bases[i]))
+            pdf_pages.savefig(fig, bbox_inches='tight')
+        
+        #variables = ["nTotal", "nQC", "nUnpaired", "nLowM", "nLowQbases", "nNonCon", "nQC", "nQC_read1", "nQC_read2"]
+        #M_variables =  fh['variables'][:]
+        #np.zeros((len(samples), len(amps), len(variables)))
+
+        fig = plt.figure(figsize=(10,10)) 
         ax = plt.subplot(111)
         data = fh[ampkey]['pileup_read1'][:]
         datasum = np.sum(data[posidx,:,:4], axis=2)
-        ax.imshow(datasum)
+        im = ax.imshow(datasum)
+        fig.colorbar(im)
         ax.set_xlabel("Positions")
         ax.set_ylabel("Samples")
         ax.set_title("%s read1"%ampkey)
         pdf_pages.savefig(fig)
 
-        fig = plt.figure() 
+        fig = plt.figure(figsize=(10,10)) 
         ax = plt.subplot(111)
         data = fh[ampkey]['pileup_read2'][:]
         datasum = np.sum(data[posidx,:,:4], axis=2)
-        ax.imshow(datasum)
+        im = ax.imshow(datasum)
+        fig.colorbar(im)
         ax.set_xlabel("Positions")
         ax.set_ylabel("Samples")
         ax.set_title("%s read2"%ampkey)
         pdf_pages.savefig(fig)
 
-        fig = plt.figure() 
+
+        fig = plt.figure(figsize=(10,10)) 
         ax = plt.subplot(111)
-        data = fh[ampkey]['coverages'][:, posidx]
-        ax.imshow(data)
+        coverages = allcov[:, posidx]
+        im = ax.imshow(coverages, vmin=0)
+        fig.colorbar(im)
         ax.set_xlabel("Positions")
         ax.set_ylabel("Samples")
         ax.set_title("%s coverages"%ampkey)
         pdf_pages.savefig(fig)
-
-        fig = plt.figure() 
+        
+        fig = plt.figure(figsize=(10,10)) 
         ax = plt.subplot(111)
-        data = fh[ampkey]['qual_read1'][:, posidx]
-        ax.imshow(data)
+        im = ax.imshow(qual1)
+        fig.colorbar(im)
         ax.set_xlabel("Positions")
         ax.set_ylabel("Samples")
         ax.set_title("%s qual read1"%ampkey)
         pdf_pages.savefig(fig)
 
-        fig = plt.figure() 
+        fig = plt.figure(figsize=(10,10)) 
         ax = plt.subplot(111)
-        data = fh[ampkey]['qual_read2'][:, posidx]
-        ax.imshow(data)
+        im = ax.imshow(qual2)
+        fig.colorbar(im)
         ax.set_xlabel("Positions")
         ax.set_ylabel("Samples")
         ax.set_title("%s qual read2"%ampkey)
         pdf_pages.savefig(fig)
+
         
+        fig = plt.figure(figsize=(10,10)) 
+        ax = plt.subplot(111)
+        im = ax.imshow(qual, vmin=0)
+        fig.colorbar(im)
+        ax.set_xlabel("Positions")
+        ax.set_ylabel("Samples")
+        ax.set_title("%s qual combined"%ampkey)
+        pdf_pages.savefig(fig)
+
+        # same plots but normalised by depth
+        for i in range(len(bases)):
+            fig = plt.figure(figsize=(20,20)) 
+            ax = plt.subplot(111)
+            ax1 = ax.twiny()
+            im = ax.imshow(pileup[:,:,i]/coverages, interpolation='nearest',
+                      aspect="auto", vmin=0, vmax=0.005, extent=[targetstart, targetend, 1, len(self.samples)])
+            # Now adding the colorbar
+            fig.subplots_adjust(right=0.8)
+            cbar_ax = fig.add_axes([0.85, 0.15, 0.05, 0.7])
+            cbar_ax.set_aspect(4)
+            fig.colorbar(im, cax=cbar_ax)
+            #plt.colorbar(im, orientation='horizontal')
+            ax.set_xlabel("Positions")
+            ax.set_ylabel("Samples")
+            #ax.set_title("%s base:%s"%(ampkey, bases[i]))
+            
+            tick_locations = np.arange(len(pos))
+            ax1.set_xticks(tick_locations)
+            ax1.set_xticklabels(refseq, size = 10)
+            ax1.set_xlabel("%s base:%s norm"%(ampkey, bases[i]))
+            pdf_pages.savefig(fig, bbox_inches='tight')
+
         pdf_pages.close() # close the file        
+        
+
+    def _joinQmatrix(self, Mq1, Mq2):
+        '''Mq1 [samples, sites], same for Mq2'''
+        Mq = np.zeros(Mq1.shape)
+        for i in range(Mq1.shape[0]):
+            permswitch = False
+            for j in range(Mq1.shape[1]): # across sites
+                if not permswitch:
+                    if Mq1[i, j] > Mq2[i, j]:
+                        Mq[i,j] = Mq1[i, j]
+                    else:
+                        Mq[i,j] = Mq2[i, j]
+                        permswitch = True
+                else:
+                    Mq[i,j] = Mq2[i, j]
+        return Mq
         
     def combine_pileup(self, probeset, amplist=None, samplelist=None):
         '''merge amps across samples into an integrated dataset'''
@@ -608,7 +752,7 @@ class Pileup:
         LG.info("write results to %s"%(out))
         LG.info("hd5 file to %s"%(h5pyout))
         
-        variables = ["nUnpaired", "nLowM", "nLowQbases", "nNonCon", "nQC", "nQC_read1", "nQC_read2"]
+        variables = ["nTotal", "nQC", "nUnpaired", "nLowM", "nLowQbases", "nNonCon", "nQC", "nQC_read1", "nQC_read2"]
         
         M_variables = np.zeros((len(samples), len(amps), len(variables)))
         
@@ -660,30 +804,31 @@ class Pileup:
                     grp.create_dataset('refseq', data = samfh['%s/refseq'%ampkey], chunks=True,compression='gzip')
                     grp.create_dataset('target_index', data = samfh['%s/target_index'%ampkey], chunks=True,compression='gzip')
 
-
+                fh["%s/pileup"%ampkey][i,] = samfh['%s/pileup'%ampkey]
                 fh["%s/pileup_read1"%ampkey][i,] = samfh['%s/pileup_read1'%ampkey]
                 fh["%s/pileup_read2"%ampkey][i,] = samfh['%s/pileup_read2'%ampkey]
                 fh["%s/qual_read1"%ampkey][i,] = samfh['%s/qual_read1'%ampkey]
                 fh["%s/qual_read2"%ampkey][i,] = samfh['%s/qual_read2'%ampkey]
                 fh["%s/coverages"%ampkey][i,] = samfh['%s/coverages'%ampkey]
                 fh["%s/consensus_seq"%ampkey][i,] = samfh['%s/coverages'%ampkey]
-    
 
                 # summary variables
                 for v in range(len(variables)):
                     M_variables[i,a,v] = samfh['%s/pileup'%ampkey].attrs[variables[v]]
-                            
+            
             try:
                 samfh.close()
             except:
                 LG.error("problem in closing %s, maybe truncated file"%samh5pyout)
+        # store seq variables
+        fh.create_dataset('variables', data = M_variables, chunks=True,compression='gzip')
         try:
             fh.close()
         except:
             LG.error("problem in closing %s"%h5pyout)
             
 
-    def _isProbeDone(self, samout, amp, ampid):
+    def _isProbeDone(self, sample, samout, amp, ampid):
         # pileups/WTCHG_107218_01/amps/NRAS_1_7/WTCHG_107218_01.NRAS_1.7.pdf
         ampdir = "%s/amps"%samout
         ampdir += "/%s_%s"%(amp,ampid)
@@ -710,7 +855,7 @@ class Pileup:
             for pb in probeset.keys():
                 amp = probeset[pb].gene
                 ampid = probeset[pb].tag
-                if not self._isProbeDone(samout, amp, ampid):
+                if not self._isProbeDone(sample, samout, amp, ampid):
                     amps.append(pb)
             LG.info("%d amplicon for %s not completed. redo it"%(len(amps),sample))
             LG.info(amps)
@@ -1514,9 +1659,7 @@ if __name__ == '__main__':
     # parser.add_argument('--amplist', required=False, default= None)
     # args = parser.parse_args()
     # LG.info(args)
-    
     # sample = args.sample
-
     # try:
     #     if args.fastq:
     #         LG.info("processing fastq")
