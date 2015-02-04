@@ -64,12 +64,12 @@ def run_combine():
     runner = Pileup()
     runner.combine_pileup(pa.probeset)
 
-def viz():
+def agg():
     runner = Pileup()
-    runner.viz_pilot()
+    runner.aggregrate_wrapper()
     
 def run():
-    viz()
+    agg()
     pass
     
 class Analysis:
@@ -542,27 +542,26 @@ class Pileup:
         MM_out = np.vstack((np.array(headers), MM_out))
         np.savetxt(out, MM_out, delimiter=',', fmt="%s")
         
-    def viz_pilot(self):
-        keys = ["49:FGFR2_5:chr10:123279547-123279684",
-                "174:KRAS:chr12:25398189-25398313",
-                "50:FGFR2_5:chr10:123279598-123279714",
-                "175:KRAS:chr12:25398214-25398362",
+    def aggregrate_wrapper(self):
+        keys = ["50:FGFR2_5:chr10:123279598-123279714",
                 "48:FGFR2_5:chr10:123279481-123279643",
+                "49:FGFR2_5:chr10:123279547-123279684",
+                "174:KRAS:chr12:25398189-25398313",
+                "175:KRAS:chr12:25398214-25398362",
                 "343:FGFR3_15:chr4:1806002-1806157",
                 "344:FGFR3_15:chr4:1806152-1806256",
                 "25:AKT3_7:chr1:243776950-243776991",
                 "26:AKT3_7:chr1:243776990-243777014",
                 "500:SETBP1:chr18:42531859-42531961",
                 "158:PTPN11_1:chr12:112919857-112920002"]
-        n = 4
+        n = 1
         i = 0
         for ampkey in keys:
-            self.visualize(ampkey)
+            self.aggregrate(ampkey)
             i += 1
             if i==n:
                 break
-        
-    def visualize(self, ampkey):
+    def aggregrate(self, ampkey):
         LG.info("sum for %s"%ampkey)
         from matplotlib.backends.backend_pdf import PdfPages
         ampid, gene, chrm, region = ampkey.split(":")
@@ -571,13 +570,20 @@ class Pileup:
         targetend = int(targetend)
         pos = range(targetstart, targetend+1)
         self.loadsamples()
-        outdir = "/Users/zd1/cloud/data/raindance/pileup/sum/%s"%ampkey
+        
+        # one directory for each amplicon. calls are made across samples
+        #outdir = "/Users/zd1/cloud/data/raindance/pileup/sum/%s"%ampkey
+        outdir = params["pileup_agg"] + "/" + ampkey
         if not os.path.exists(outdir):
             os.mkdir(outdir)
             
         pdf_pages = PdfPages("%s/%s.pdf"%(outdir,ampkey))
-        #fh = h5py.File(params["pileup_sum"], 'r')
-        fh = h5py.File("/Users/zd1/volumn/wt/raindance/pileups/all/all.hd5",'r')
+        fh = h5py.File(params["pileup_sum"], 'r')
+        if not ampkey in fh:
+            LG.error("Can't find %s in %s; data for amp possibily incomplete"%(ampkey, params["pileup_sum"]))
+            sys.exit(1)
+            
+        #fh = h5py.File("/Users/zd1/volumn/wt/raindance/pileups/all/all.hd5",'r')
         bases = ['A', 'C', 'G', 'T']
         posidx = fh[ampkey]['target_index']
         pileup = fh[ampkey]['pileup'][:]
@@ -588,8 +594,9 @@ class Pileup:
         qual1 = fh[ampkey]['qual_read1'][:]/allcov
         qual2 = fh[ampkey]['qual_read2'][:]/allcov
         qual = self._joinQmatrix(qual1, qual2)
-        self.sum_export(ampkey, pileup, qual[:,posidx], self.samples,chrm, pos, refseq, "%s/%s.csv"%(outdir,ampkey))
-
+        
+        self.sum_export(ampkey, pileup, qual[:,posidx], self.samples, chrm, pos, refseq, "%s/%s.csv"%(outdir,ampkey))
+        
         common = self._findCommonVariants(pileup)
         pileup = self._clearCommon(pileup,common)
 
@@ -704,8 +711,17 @@ class Pileup:
             pdf_pages.savefig(fig, bbox_inches='tight')
 
         pdf_pages.close() # close the file        
-        
+    
 
+    def callvt(self, ampkey):
+        outdir = params["pileup_agg"] + "/" + ampkey
+        if not os.path.exists(outdir):
+            LG.error("%s does not exist. amp data not extracted yet. run --amp first"%ampkey)
+        # run R script here
+        cmd = "Rscript %s %s %s"%(params["call"], ampkey, outdir)
+        print cmd
+        os.system(cmd)
+        
     def _joinQmatrix(self, Mq1, Mq2):
         '''Mq1 [samples, sites], same for Mq2'''
         Mq = np.zeros(Mq1.shape)
@@ -1651,47 +1667,59 @@ def test():
 
 if __name__ == '__main__':
     
-    # parser = argparse.ArgumentParser(description='Raindance analysis')
-    # parser.add_argument('--fastq', action='store_true', default=False)
-    # parser.add_argument('--pileup', action='store_true', default=False)
-    # parser.add_argument('--sum', action='store_true', default=False)
-    # parser.add_argument('--sample', default = None)
-    # parser.add_argument('--amplist', required=False, default= None)
-    # args = parser.parse_args()
-    # LG.info(args)
-    # sample = args.sample
-    # try:
-    #     if args.fastq:
-    #         LG.info("processing fastq")
-    #         if sample is None:
-    #             LG.error("must specify sample")
-    #             sys.exit(1)
-    #         runner = Analysis()
-    #         runner.load_seq_index()
-    #         runner.load_probe_annotation()
-    #         runner.build_hash()
-    #         runner.scan_fastq(sample)
-    #         runner.summary_plots(sample)
-    #     elif args.pileup:
-    #         LG.info("doing pileup")
-    #         if sample is None:
-    #             LG.error("must specify sample")
-    #             sys.exit(1)
-    #         pa = Analysis()
-    #         pa.load_probe_annotation()
-    #         amplistfile = args.amplist
-    #         runner = Pileup()
-    #         runner.pileupProbes(pa.probeset, sample, amplistfile)
-    #     elif args.sum:
-    #         LG.info("doing summary")
-    #         pa = Analysis()
-    #         pa.load_probe_annotation()
-    #         runner = Pileup()
-    #         runner.combine_pileup(pa.probeset)
-    #     else:
-    #         print "need to specify --fastq, --pileup or --sum"
-    #         sys.exit(1)
-    # except:
-    #     sys.exit(1)
+    parser = argparse.ArgumentParser(description='Raindance analysis')
+    parser.add_argument('--fastq', action='store_true', default=False)
+    parser.add_argument('--pileup', action='store_true', default=False)
+    parser.add_argument('--sum', action='store_true', default=False)
+    parser.add_argument('--agg', action='store_true', default=False, help="agg per amp across all samples")
+    parser.add_argument('--amp', default=None, help="agg per amp across all samples")
+    parser.add_argument('--sample', default = None)
+    parser.add_argument('--amplist', required=False, default= None)
+    args = parser.parse_args()
+    LG.info(args)
+    sample = args.sample
+    try:
+        if args.fastq:
+            LG.info("processing fastq")
+            if sample is None:
+                LG.error("must specify sample")
+                sys.exit(1)
+            runner = Analysis()
+            runner.load_seq_index()
+            runner.load_probe_annotation()
+            runner.build_hash()
+            runner.scan_fastq(sample)
+            runner.summary_plots(sample)
+        elif args.pileup:
+            LG.info("doing pileup")
+            if sample is None:
+                LG.error("must specify sample")
+                sys.exit(1)
+            pa = Analysis()
+            pa.load_probe_annotation()
+            amplistfile = args.amplist
+            runner = Pileup()
+            runner.pileupProbes(pa.probeset, sample, amplistfile, remainOnly=False)
+        elif args.sum:
+            LG.info("doing summary")
+            pa = Analysis()
+            pa.load_probe_annotation()
+            runner = Pileup()
+            runner.combine_pileup(pa.probeset)
+        elif args.agg:
+            LG.info("extracting data for amplicon %s across all samples"%(args.amp))
+            if args.amp is None:
+                LG.error("amp tag needs to be specified. e.g. 50:FGFR2_5:chr10:123279598-123279714")
+                sys.exit(1)
+            runner = Pileup()
+            runner.aggregrate(args.amp)
+            LG.info("done amp data extraction. Calling variants")
+            runner.callvt(args.amp)
+            LG.info("Calling done. ")
+        else:
+            print "need to specify --fastq, --pileup or --sum"
+            sys.exit(1)
+    except:
+        sys.exit(1)
         
-    run()
+#    run()
