@@ -1,29 +1,21 @@
+
 import sys
 import os
-
-if not os.environ.has_key('MYPYTHONPATH'):
-    sys.path.append('/Users/zd1/cloud/code/tools/src')
-else:    
-    sys.path.append(os.environ['MYPYTHONPATH'])
-
 import numpy as np
 import h5py
 import pdb
 import csv
-from myio import serial
 import gzip
 import re
-from Bio import pairwise2
-from Bio.pairwise2 import format_alignment
+import cPickle
 from Bio import SeqIO
-import parse_primer_cfg
 
+## plotting related
 import matplotlib
 matplotlib.use('PDF')
 import pylab
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-
 plparams = {
 'axes.labelsize': 21,
 'font.size': 10,
@@ -36,13 +28,11 @@ plt.rcParams.update(plparams)
 import pysam
 import subprocess
 import argparse
-import hashlib
 
 import logging as LG
 LG.basicConfig(level=LG.DEBUG)
 
-import cProfile, pstats, StringIO
-
+import parse_primer_cfg
 params = parse_primer_cfg.param
 
 def plotAllFastq():
@@ -122,11 +112,15 @@ class Analysis:
             LG.info("loaded index for %d paird fastq"%len(self.fastqtag))
         pass
 
-    def load_probe_annotation(self):
+    def load_probe_annotation(self, overwritetable=None):
         '''read amplicon annotation data, load this file to mem
         probes are identified by their names'''
         seen = set()
-        with open(params['table'], 'rt') as csvfile:
+        if overwritetable is not None:
+            amptable = overwritetable
+        else:
+            amptable = params['table']
+        with open(amptable, 'rt') as csvfile:
             head=True
             pbreader = csv.reader(csvfile, delimiter=',', quotechar='"')
             for row in pbreader:
@@ -271,7 +265,7 @@ class Analysis:
                     mismatch_pairs[id1 + "-" + id2] += 1
 
         R = {"global": counter, "amp": ampcounter, "mismatch": mismatch_pairs, "ampmeta":self.probeset}
-        serial.cdmz(R, "%s/%s.picklez"%(params["fastq_outdir"], tag))
+        cdmz(R, "%s/%s.picklez"%(params["fastq_outdir"], tag))
 
         handle1.close()
         handle2.close()
@@ -283,7 +277,7 @@ class Analysis:
     def summary_plots(self, sample):
         #tag = self.fastqtag[index]
         tag = sample
-        results = serial.clz("%s/%s.picklez"%(params["fastq_outdir"], tag))
+        results = clz("%s/%s.picklez"%(params["fastq_outdir"], tag))
         probes = results["ampmeta"]
         gl = results["global"]
         amp = results["amp"]
@@ -358,7 +352,7 @@ class Analysis:
         nMisMatches = []
         nNoMatches = []
         for tag in self.fastqtag:
-            results = serial.clz("%s/%s.picklez"%(params["fastq_outdir"], tag))
+            results = clz("%s/%s.picklez"%(params["fastq_outdir"], tag))
             gl = results["global"]
             nTotals.append(gl.nTotal_read)
             nQCs.append(gl.nQC_read)
@@ -366,12 +360,20 @@ class Analysis:
             nMisMatches.append(gl.nPrimer_MisMatch)
             nNoMatches.append(gl.nPrimer_NoMatch)
 
+        nAll = np.concatenate((self.fastqtag, nTotals, nQCs, nLowQreads, nMisMatches, nNoMatches))
+        nAllmx = nAll.reshape(len(nAll)/len(self.fastqtag), len(self.fastqtag))
+        
+        with open("%s/globalsummary.csv"%(params["fastq_outdir"]), "w") as ofh:
+            for i in range(len(self.fastqtag)):
+                ofh.write(",".join(map(str, nAllmx[:,i]))+ "\n")
+
+            
         fig = plt.figure()
         ax = plt.subplot(111)
         xpos = np.arange(len(self.fastqtag))
         xlabels = self.fastqtag
         width = 0.2
-        scaler = 1
+        scaler = 0.1
         ax.bar(xpos, nTotals, width, color='k', label="Total")
         ax.bar(xpos+scaler*width, nQCs, width, color='y', label="QC")
         ax.bar(xpos+scaler*2*width, nLowQreads, width, color='b', label="LowQ")
@@ -405,11 +407,6 @@ class Pileup:
     
     def __init__(self):
         pass
-    # pileup for each amplicon, only the target region
-    # and the target reads
-    # vcf like output
-    # chrm, start, end, ref, alt, info, sample1 .... sampleN
-    # apply caller
     
     def _baseMidx(self, seq):
         '''classify each base into ATGC'''
@@ -897,15 +894,13 @@ class Pileup:
                 self.countpileup(probeset[pb], sample, bam, samout, h5pyout)
         
     def pileupProbes_test(self, probeset):
-        samples = ["WTCHG_98550_01", "WTCHG_98544_05", "WTCHG_98544_08", "WTCHG_98544_09", "WTCHG_98544_13"]
+        samples = ["WTCHG_107218_12"]
         for sample in samples:
             bam = "/Users/zd1/volumn/wt/raindance/bams/%s/%s.sorted.bam"%(sample, sample)
-            samout = "%s/%s"%(params["pileup_outdir"], sample)
-            h5pyout = "%s/%s.MM.hd5"%(samout, sample)
-            if os.path.exists(h5pyout):
-                os.remove(h5pyout)
+            samout = "/Users/zd1/cloud/data/raindance/pileup/sum/calls/annovar/querys/%s"%(sample)
+            h5pyout = "/Users/zd1/cloud/data/raindance/pileup/sum/calls/annovar/querys/%s.MM.hd5"%(sample)
             for pb in probeset.keys():
-                if pb not in ["217"]:
+                if pb not in ["131"]:
                     continue
                 self.countpileup(probeset[pb], sample, bam, samout, h5pyout)
             break
@@ -977,7 +972,7 @@ class Pileup:
         telly.resolveMM()
         LG.debug(telly.nNonCon)
         LG.debug("hets:" + str(telly.idx_hets))
-
+        
         telly.ampid = ampid
         telly.ampname = amp
         
@@ -1318,12 +1313,20 @@ class Pileup:
                     telly.nNonCon += 1
                     badfragments.add(alignedread.qname)
                     continue
-                
+
+            c95 = MM_read1_only[95,2]
+            c96 = MM_read1_only[96,2]
+            
             if alignedread.is_read1:
                 MM_read1_only = self._assignM(MM_read1_only, rleft, idx, idx_cigar)
+                c95p = MM_read1_only[95,2]
+                c96p = MM_read1_only[96,2]
             else:
                 MM_read2_only = self._assignM(MM_read2_only, rleft, idx, idx_cigar)
-        
+
+            if c95p > c95 and c96p > c96:
+                pdb.set_trace()
+            
             nQC += 1
             if alignedread.is_read1:
                 nQC_read1 += 1
@@ -1574,7 +1577,20 @@ class SeqSam:
         self.individual = individual
         self.slide = slide
         self.chunck = chunck
+    
+class Counter:
+    nTotal_read = 0
+    nShort_read = 0
+    nQC_read = 0
+    nPrimer_NoMatch = 0
+    nPrimer_MisMatch = 0
+    nLowQreads = 0
+    def __init__(self, tag):
+        self.tag = tag
 
+##############################
+## Kmer search related
+##############################
                     
 class SeqHash:
     '''build a kmer hash'''
@@ -1635,35 +1651,36 @@ class SeqHash:
                     n_most = allmatches[key]
                     best = key
         return best
-    
-class Counter:
-    nTotal_read = 0
-    nShort_read = 0
-    nQC_read = 0
-    nPrimer_NoMatch = 0
-    nPrimer_MisMatch = 0
-    nLowQreads = 0
-    def __init__(self, tag):
-        self.tag = tag
 
-# below are tests only
-def testseed():
-    "test read 45bp long"
-    cigar = re.findall(r'([0-9]+)([MIDNSHPX=])', "1D66M34M")
-    print cigar
-    cigar_read = ""
-    for i in cigar:
-        count, sym = i
-        count = int(count)
-        for j in range(count):
-            cigar_read += sym
-        pass
-    print cigar_read
 
-def test():
-    fa = Fasta("/Users/zd1/mount/wimmhts/common/ref/old/hg19_GRCh37/hg19.fa")
-    print fa.get_sequence_by_region("chr10", "123279527", "123279702")
-    pass
+##############################
+## Utility functions
+##############################
+def cdmz(myobject, filename, protocol = -1):
+        """Saves a compressed object to disk
+        """
+        myfile = gzip.open(filename, 'wb')
+        myfile.write(cPickle.dumps(myobject, protocol))
+        myfile.close()
+
+def clz(filename):
+        """Loads a compressed object from disk
+        """
+        myfile = gzip.GzipFile(filename, 'rb')
+        mybuffer = ""
+        while True:
+                data = myfile.read()
+                if data == "":
+                        break
+                mybuffer += data
+        myobject = cPickle.loads(mybuffer)
+        myfile.close()
+        return myobject
+
+def cl(f): return cPickle.load(open(f,'rb'))
+def cdm(o,f): cPickle.dump(o, open(f, 'wb'), -1)
+
+
 
 if __name__ == '__main__':
     
@@ -1672,6 +1689,7 @@ if __name__ == '__main__':
     parser.add_argument('--pileup', action='store_true', default=False)
     parser.add_argument('--sum', action='store_true', default=False)
     parser.add_argument('--agg', action='store_true', default=False, help="agg per amp across all samples")
+    parser.add_argument('--call', action='store_true', default=False, help="call variants per amp across all samples")
     parser.add_argument('--amp', default=None, help="agg per amp across all samples")
     parser.add_argument('--sample', default = None)
     parser.add_argument('--amplist', required=False, default= None)
@@ -1716,10 +1734,16 @@ if __name__ == '__main__':
             LG.info("done amp data extraction. Calling variants")
             runner.callvt(args.amp)
             LG.info("Calling done. ")
+        elif args.call:
+            LG.info("calling variants for amplicon %s across all samples"%(args.amp))
+            if args.amp is None:
+                LG.error("amp tag needs to be specified. e.g. 50:FGFR2_5:chr10:123279598-123279714")
+                sys.exit(1)
+            runner = Pileup()
+            runner.callvt(args.amp)
+            LG.info("Calling done. ")
         else:
             print "need to specify --fastq, --pileup or --sum"
             sys.exit(1)
     except:
         sys.exit(1)
-        
-#    run()

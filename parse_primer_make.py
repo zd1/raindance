@@ -1,3 +1,4 @@
+
 import os
 import sys
 sys.path.append("/users/mcvean/zd1/workspace/raindance/")
@@ -69,4 +70,3 @@ if __name__ == '__main__':
     #cmd += " --amplist /users/mcvean/zd1/workspace/raindance/amp_shortlist"
     print cmd
     os.system(cmd)
-

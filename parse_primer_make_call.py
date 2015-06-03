@@ -1,3 +1,4 @@
+
 import os
 import sys
 sys.path.append("/users/mcvean/zd1/workspace/raindance/")
@@ -47,16 +48,25 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Raindance job runner')
     args = parser.parse_args()
     allindics = range(len(probes))
-
-    # jobidx
-    index = int(os.environ['SGE_TASK_ID']) - 1
-    probe = probes[allindics[index]]
-    print "Analysing probe %s"%probe
     
-    # calling for probes
-    cmd = "python %s/parse_primer.py"%code
-    cmd += " --agg "
-    cmd += " --amp " + probe
-    print cmd
-    os.system(cmd)
-
+    # jobidx
+    # index = int(os.environ['SGE_TASK_ID']) - 1
+    # batch = 10
+    # start = index * batch
+    # end = start + batch
+    start = 0
+    end = 500
+    for i in range(start,end):
+        probe = probes[allindics[i]]
+        print "Analysing probe %s"%probe
+        if os.path.exists("/users/mcvean/zd1/volumn/raindance/sum/%s/%s.A.csv"%(probe, probe)):
+            print "probe already done"
+            continue
+                
+        # calling for probes
+        cmd = "python %s/parse_primer.py"%code
+        #cmd += " --agg "
+        cmd += " --call "
+        cmd += " --amp " + probe
+        print cmd
+        os.system(cmd)
