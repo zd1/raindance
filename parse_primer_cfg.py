@@ -24,16 +24,21 @@ param = {
     # BAM directory, where each sample is stored bamdir/sample/sample.sorted.bam
     "bamdir" : "/Users/zd1/volumn/wimm/raindance/bams",
     
-    # pileup output dirs
+    # pileup
     "pileup_outdir":"/Users/zd1/volumn/wt/raindance/pileups",
-        
-    # pileup filters
+    "pileup_sum": "/users/mcvean/zd1/volumn/raindance/sum/all.hd5",
+    "pileup_agg": "/users/mcvean/zd1/volumn/raindance/sum/",
+    "vcf": "/users/mcvean/zd1/volumn/raindance/sum//all.vcf.gz",
     "baseQ_cutoff": 0, # base quality cutoff
     "mapQ_cutoff": 0, # mapping quality cutoff
     "max_noncon_per_read": 10, # max amount of non concensus nucleotide in a read
-    
-    # pileup exporting
     "min_coverage" : 5000, # min coverage
     "min_non_consensus_freq": 0.005, # counts of all non consensus bases together needs to reach this frequency to be considered as elevated. 
     "min_het_frq" : 0.10, # considered a het if non consensus counts exceeds this threshold
+
+    # call
+    "call": "/users/mcvean/zd1/volumn/code/raindance/call.R",
+    
+    #alphabet
+    "alphabet": ["A", "C", "G", "T"]
 }
