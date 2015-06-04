@@ -13,7 +13,6 @@ from Bio import SeqIO
 ## plotting related
 import matplotlib
 matplotlib.use('PDF')
-import pylab
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 plparams = {
@@ -36,16 +35,16 @@ import parse_primer_cfg
 params = parse_primer_cfg.param
 
 def plotAllFastq():
-    runner = Analysis()
-    runner.load_seq_index()
-    runner.load_probe_annotation()
-    runner.globalsummary()
+    ra = Analysis()
+    ra.load_seq_index()
+    ra.load_probe_annotation()
+    ra.globalsummary()
 
 def run_pileup():
-    pa = Analysis()
-    pa.load_probe_annotation()
-    runner = Pileup()
-    runner.pileupProbes_test(pa.probeset)
+    a = Analysis()
+    a.load_probe_annotation()
+    r = Pileup()
+    r.pileupProbes_test(a.probeset)
 
 def run_combine():
     LG.info("doing summary")
