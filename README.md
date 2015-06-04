@@ -5,9 +5,9 @@
 
 ## Preprocess reads in fastq format
 
-`
+```python
 python parse_primer.py  --fastq  --sample sampleName
-`
+```
 
 ## Read mapping
 
@@ -22,7 +22,7 @@ python parse_primer.py  --pileup  --sample sampleName
 
 ## Integrate quantifications of samples
 `
-python %parse_primer.py --sum
+python parse_primer.py --sum
 `
 
 ## Aggregrate quantifications of each amplicon across samples, generating files/plots per amplicon
