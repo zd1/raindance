@@ -35,7 +35,9 @@ python parse_primer.py --agg --amp ampliconName
 ```
 python parse_primer.py --call --amp ampliconName
 ```
+
 # Meta Data
+
  |    File Name  | Description |
  | --------------| ------------|
  | meta/samplelist | A list of IDs of all samples |
