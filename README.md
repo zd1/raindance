@@ -7,7 +7,7 @@
 
 ```python
 python parse_primer.py  --fastq  --sample sampleName
-```
+
 
 ## Read mapping
 
