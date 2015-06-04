@@ -8,7 +8,6 @@ param = {
     "samplelist" : "/Users/zd1/volumn/wt/raindance/meta/samplelist",
     "fastqindex":"/Users/zd1/volumn/wt/raindance/meta/fastq.index",
     "table" : "/Users/zd1/volumn/wt/raindance/meta/amplicons.csv", 
-    "ampshortlist": "/users/mcvean/zd1/workspace/raindance/amp_shortlist",
     "fastq_outdir" : "/Users/zd1/volumn/wt/raindance/fastq.qc/",
     # parameters:
     "kmersize" : 10,
@@ -37,7 +36,7 @@ param = {
     "min_het_frq" : 0.10, # considered a het if non consensus counts exceeds this threshold
 
     # call
-    "call": "/users/mcvean/zd1/volumn/code/raindance/call.R",
+    "call": "call.R",
     
     #alphabet
     "alphabet": ["A", "C", "G", "T"]

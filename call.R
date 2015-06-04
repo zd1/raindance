@@ -15,23 +15,8 @@ args <- commandArgs(trailingOnly = TRUE)
 print(args)
 ampkey <- args[1]
 wkdir <- args[2]
-sample.anno <- read.csv("/users/mcvean/zd1/volumn/raindance/meta/sample_seq.csv", head=TRUE)
+sample.anno <- read.csv("meta/sample_seq.csv", head=TRUE)
 rm(args)
-
-##################
-### when testing
-##################
-## ## ampkey <-  "50:FGFR2_5:chr10:123279598-123279714"
-## ## ampkey <-  "48:FGFR2_5:chr10:123279481-123279643"
-## ## ampkey <- "49:FGFR2_5:chr10:123279547-123279684"
-## ampkey <-  "174:KRAS:chr12:25398189-25398313"
-## #ampkey <-  "175:KRAS:chr12:25398214-25398362"
-#wkdir <- paste("/Users/zd1/cloud/data/raindance/pileup/sum/", ampkey, sep="")
-
-## ampkey <- "229:TP53_11:chr17:7579573-7579729"
-## wkdir <- paste("/Users/zd1/volumn/wt/raindance/sum/", ampkey, sep="")
-## sample.anno <- read.csv("/Users/zd1/cloud/data/raindance/meta/sample_seq.csv", head=TRUE)
-
 
 ######################
 ## Load data
@@ -353,83 +338,3 @@ write.csv(cbind(Pos=pos, ncc.sample), file = paste(ampkey,".ncc.csv",sep=""),
 colnames(ncr.sample) <- samples
 write.csv(cbind(Pos=pos, ncr.sample), file = paste(ampkey,".ncr.csv",sep=""),
           row.names = FALSE, quote=FALSE)
-
-
-###################################################
-## Write out putative hits
-###################################################
-
-## if(length(hits) > 0){
-##     # organise output formats
-##     hits$Amp <- ampkey
-##     hits <- hits[, c("Amp","Chrm", "Pos", "SamName", "Sample", "Site",  "Ref",  "Allele",
-##                      "P", "Exp", "fdr", "bonf", "Rate", "Count",  "NCC", "NCR")]
-##     hits$Depth <- hits$NCC/hits$NCR
-##     write.table(hits, paste(ampkey,".calls.qtsd.csv",sep=""), sep=",", col.names=TRUE, row.names=FALSE, quote=FALSE)
-## }
-
-
-###################################################
-## debugging as some sample/site were not called
-###################################################
-
-## tpos <- 25398281
-## knowsam <- c(274, 115,116,118,120,121,122,124, 126)
-
-## ## tpos <- 25398284
-## ## knowsam <- c(210, 218, 246, 90, 92, 93, 96, 98, 46, 60, 259) 
-
-## ipos <- which(pos==tpos)
-## calledsams <- hits$Sample[which(hits$Pos==tpos)]
-
-## sample.v <- data.frame(Sample=allsamples$seqsample,
-##                        Lane = allsamples$Illumina.lane,
-##                        ## Lib = allsamples$Lib,
-##                        ## FC = allsamples$"Flow.cell",
-##                        ## Ind = allsamples$individual,
-##                        ## Slide = allsamples$slide.ID,
-##                        ORI=allele.sample[ipos,, 4],
-##                        GLM=glmres(t(allele.sample[,, 4]))[,ipos],
-##                        KNN=laneKnn(glmres(t(allele.sample[,, 4])))[,ipos],
-##                        QT=interqt(laneKnn(glmres(t(allele.sample[,, 4]))))[,ipos],
-##                        P=-log10(allp[,ipos,4]))
-
-## sample.v$anno <- "null"
-## sample.v$anno[knowsam] <- "hits"
-## sample.v$anno[calledsams] <- "called"
-## sample.v$anno <- as.factor(sample.v$anno)
-
-## pdf(paste("pairs.remove.lane.effect.",tpos,".pdf", sep=""))
-## pairs(sample.v[,-8], cex=0.7, pch=16, col=sample.v$anno, main="25398281")
-## dev.off()
-
-
-
-
-## sample.t.ori <- melt(t(allele.sample[,, 4]))
-## sample.t.glm <- melt(glmres(t(allele.sample[,, 4])))
-## sample.t.knn <- melt(laneKnn(glmres(t(allele.sample[,, 4]))))
-## sample.t.qt <- melt(interqt(laneKnn(glmres(t(allele.sample[,, 4])))))
-
-## sample.t <- cbind(sample.t.ori, sample.t.glm[,3], sample.t.knn[,3], sample.t.qt[,3])
-## colnames(sample.t) <- c("Sample", "Site", "Rate", "GLM", "KNN", "QT")
-## sample.t <- sample.t[which(sample.t$Site == hitpos),]
-## sample.t$Count <- sapply(1:nrow(sample.t), function(i){allele.sample.c[sample.t[i,"Site"],sample.t[i,"Sample"], 4]})
-## sample.t$logP <- sapply(1:nrow(sample.t), function(i){-log10(allp[sample.t[i,"Sample"],sample.t[i,"Site"], 4])})
-## #anno.which <- which(sample.t$NormRate > 0.002)
-## sample.t$hit <- "green"
-## sample.t$hit[sample.t$Sample %in% calledsams] <- "blue"
-## sample.t$hit[sample.t$Sample %in% knowsam] <- "red"
-## sample.t$SamName <- allsamples$seqsample[sample.t[,"Sample"]]
-## sample.t <- cbind(sample.t, allsamples[match(sample.t$SamName, allsamples$seqsample),])
-## sample.t <- sample.t[, which(!colnames(sample.t) %in% c("X", "SamName", "BCNumber", "Lib_BC", "Testis.Sample", "Testis.slide.ID", "X.1", "Ind.Slide.sample", "seqsample", "BC",  "Site")) ]
-
-## pdf("diagnosis.pair.25398281.pdf", width=8, height=6)
-## pairs(sample.t, col=sample.t$hit, cex=0.7, pch=16)
-## dev.off()
-
-
-## ggplot(sample.t, aes(x=Sample, y=logP, colour=hit)) + geom_point()
-
-
-    ## annotate("text", x=sample.t$Site[anno.which] + 2, y = sample.t$NormRate[anno.which], label = sample.t$Sample[anno.which], size=3)

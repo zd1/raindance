@@ -27,14 +27,21 @@ python parse_primer.py --sum
 
 ## Aggregrate quantifications of each amplicon across samples, generating files/plots per amplicon
 ```
-python %parse_primer.py --agg --amp ampliconName
+python parse_primer.py --agg --amp ampliconName
 ```
 
 ## Call elevated alleles
 
 ```
-python %parse_primer.py --call --amp ampliconName
+python parse_primer.py --call --amp ampliconName
 ```
+# Meta Data
+ |    File Name  | Description |
+ | --------------| ------------|
+ | meta/samplelist | A list of IDs of all samples |
+ | meta/fastq.index | A list of all fastq files |
+ | meta/amplicons.csv | Information about amplicons |
+ | meta/sample_seq.csv | sequencing production information | 
 
 # Contact
   someone at imm.ox.ac.uk
