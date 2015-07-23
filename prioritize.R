@@ -1,38 +1,29 @@
 
-## [[file:~/dev/org/rain.org::*prioritize%20variants][prioritize]]
-
-#library(caret)
 library(ggplot2)
 library(reshape)
 
-wkdir="/Users/zd1/cloud/data/raindance/pileup/sum/calls/annovar"
+wkdir="/Users/zd1/cloud/data/raindance/pileup/sum/calls/annovar/release_2015-07-23/"
 setwd(wkdir)
-samples <- read.table("/Users/zd1/cloud/data/raindance/meta/sample_seq.csv", sep=",", header=TRUE)
-samplelist <- read.table("/Users/zd1/cloud/data/raindance/meta/samplelist", sep=",", header=FALSE)
+samples <- read.table("/Users/zd1/cloud/data/raindance/meta/samples.csv", sep=",", header=TRUE)
 
-samples$id <- match(samples$seqsample, samplelist$V1)
+######################################################################################
+## Unannotated VCF table made by bcftools, we filtered on Q20, so have 6k variants
+######################################################################################
 
+# vcf
+vcf=read.table("/Users/zd1/volumn/wt/raindance/call/simon/all.flt.anvinput", header=TRUE, sep="\t", comment.char="")
+colnames(vcf)[1:10] <- c("Chrm", "Pos", "Pos", "Ref", "Alt",
+                         "Amp", "MaxP", "P20", "P50", "X")
+colnames(vcf)[11:298] <- seq(1,288)
 
-vcf=read.table("annovar.vcf.gz.avinput", header=TRUE, sep="\t", comment.char="")
-colnames(vcf)[1:14] <- c("Chrm", "Pos", "Pos", "Ref", "Alt",
-                         "Amp", "MaxP", "P20", "P50", "Phred",
-                         "AC_NFE", "AC", "AF", "CNT")
+## Annotation for the same set of variants
+anno=read.table("/Users/zd1/volumn/wt/raindance/call/simon/all.flt.anvinput.annovar.hg19_multianno.txt", header=TRUE, sep="\t")
+anno.vcf <- cbind(anno, vcf)
 
-colnames(vcf)[15:302] <- seq(1,288)
-anno=read.table("annovar.vcf.gz.annovar.out.hg19_multianno.no2ndrow.txt", header=TRUE, sep="\t")
+## Amplicon
 ampcat=read.table("/Users/zd1/cloud/data/raindance/meta/ampcat.csv", header=FALSE, sep=",")
 colnames(ampcat) <- c("AmpID", "Amp", "CatNum")
-
-
-
-# annotation for the entire input region covered by this experiment
-anno_raw=read.table("raw.vcf.gz.annovar.out.hg19_multianno.no2ndrow.txt", header=TRUE, sep="\t")
-anno_avinput=read.table("raw.vcf.gz.avinput", header=TRUE, sep="\t", comment.char="")
-colnames(anno_avinput) <- c("Chrm", "Pos", "Pos1", "Ref", "Alt", "Amp", "MaxP", "P20", "P50")
-anno_raw <- cbind(anno_raw, anno_avinput)
-
 amp <- read.table("/Users/zd1/cloud/data/raindance/meta/amplicons.csv", header=TRUE, sep=",")
-
 amp$ts <- sapply(1:dim(amp)[1], function(i){
     as.numeric(paste(strsplit(as.character(amp$Target.Start)[i],",")[[1]],collapse=""))
            })
@@ -49,11 +40,17 @@ amp$Amp <- sapply(1:dim(amp)[1], function(i){
     paste(aid,":", ex, ":",chrm,":",s,"-",e,sep="")
 })
 
+save.image("2015-07-23.Rdata")
+############################################################################
+############################################################################
 
 ############################################################################
 ## Mutation Pattern
 ############################################################################
+## load("2015-07-23.Rdata")
+vcf <- anno.vcf
 
+a.let<-c("A", "C", "G", "T");
 mut <- array(c(1,2,1,3,1,4,2,1,2,3,2,4,3,1,3,2,3,4,4,1,4,2,4,3), c(2,12))
 mutptn <- c()
 for(i in 1:12){
@@ -90,11 +87,11 @@ amplen <- sapply(1:dim(vcf)[1], function(x){
 })
 vcf$Amplen <- amplen
 
-amplen <- sapply(1:dim(anno_raw)[1], function(x){
-    y <- as.integer(strsplit(strsplit(as.character(anno_raw$Amp)[x], ":")[[1]][4],"-")[[1]])
+amplen <- sapply(1:dim(vcf)[1], function(x){
+    y <- as.integer(strsplit(strsplit(as.character(vcf$Amp)[x], ":")[[1]][4],"-")[[1]])
     abs(y[1] - y[2])
 })
-anno_raw$Amplen <- amplen
+vcf$Amplen <- amplen
 
 
 ############################################################
@@ -116,8 +113,8 @@ ampcat$Cat <- catname$Cat[match(as.character(ampcat$CatNum), as.character(catnam
 vcf$Cat <- ampcat$Cat[match(as.character(vcf$Amp), as.character(ampcat$Amp))]
 vcf$AmplenRatio <- ampcat$AmplenRatio[match(as.character(vcf$Amp), as.character(ampcat$Amp))]
 
-anno_raw$Cat <- ampcat$Cat[match(as.character(anno_raw$Amp), as.character(ampcat$Amp))]
-anno_raw$AmplenRatio <- ampcat$AmplenRatio[match(as.character(anno_raw$Amp), as.character(ampcat$Amp))]
+vcf$Cat <- ampcat$Cat[match(as.character(vcf$Amp), as.character(ampcat$Amp))]
+vcf$AmplenRatio <- ampcat$AmplenRatio[match(as.character(vcf$Amp), as.character(ampcat$Amp))]
 
 pdf("freq_p20.pdf")
 barplot(table(vcf$Cat), main="Freq at P20")
@@ -133,29 +130,28 @@ vcf$RelPos <- relpos
 ################################################################
 ## Add Median Coveage, Max allele frequency, whether replicated
 ################################################################
-a.let <- c("A", "C", "G", "T")
+
 altcol <- 5
 sampstart <- 15
 n.sam <- 288
 
+sami <- which(colnames(vcf) %in% seq(1,288))
+
 vcfmeta <- apply(vcf, 1, function(x){
-    vsi <- which(a.let == as.character(x[5])[[1]])
-    x <- x[15:302] # samples
-    vsc <- lapply(x,function(y){strsplit(strsplit(as.character(y),":")[[1]][1], ",")})
-    mdcov <- median(sapply(vsc, function(z){sum(as.numeric(z[[1]]))}))
-    mxrate <- max(sapply(vsc, function(z){as.numeric(z[[1]])[vsi]/sum(as.numeric(z[[1]]))}), na.rm=TRUE)
-    c(mdcov,mxrate)
+    x <- x[sami] # samples
+    vsc <- lapply(x,function(y){as.numeric(strsplit(as.character(y[1][[1]]), ",")[[1]])})
+    mdcov <- median(sapply(vsc, sum))
+    ref <- a.let[as.numeric(names(sort(table(sapply(vsc, function(x){which.max(x)})), decreasing=TRUE))[1])]
+    alt <- a.let[as.numeric(names(sort(table(sapply(vsc, function(x){order(x, decreasing=TRUE)[2]})), decreasing=TRUE))[1])]
+    mxrate <- max(sapply(vsc, function(x){xi <- order(x, decreasing=TRUE)[2]; x[xi]/sum(x)}), na.rm=TRUE)
+    c(ref, alt, mdcov, mxrate)
 })
 
-vcf$MdCov <- vcfmeta[1,]
-vcf$MxRate <- vcfmeta[2,]
-vcf$logRate <- log10(vcf$MxRate)
-vcf$PvlRank <- ave(-vcf$MaxP, vcf$Cat, FUN=rank)
-vcf$RateRank <- ave(-vcf$logRate, vcf$Cat, FUN=rank) 
-
-vcf$P20Size <- sapply(strsplit(as.character(vcf$P20),","), length)
-vcf$P20SizePvlRank <- ave(-vcf$MaxP, vcf$P20Size, FUN=rank) 
-
+## vcf$Ref1 <- vcfmeta[1,]
+## vcf$Alt1 <- vcfmeta[2,]
+vcf$MdCov <- as.numeric(vcfmeta[3,])
+vcf$MxRate <- as.numeric(vcfmeta[4,])
+vcf$MxRateRank <- rank(vcf$MxRate)
 vcf$PRank <- rank(-vcf$MaxP)
 
 # Replicated
@@ -163,6 +159,9 @@ repi <- which(duplicated(vcf[,c("Chrm", "Pos", "Alt")]) | duplicated(vcf[,c("Chr
 vcf$Rep <- "Uni"
 vcf$Rep[repi] <- "Rep"
 vcf$Rep <- as.factor(vcf$Rep)
+
+save.image("2015-07-23_processed.Rdata")
+
 
 # libraries
 libs <- unique(samples$Illumina.lane)
@@ -174,7 +173,7 @@ indc <- array(0,c(dim(vcf)[1],length(inds)))
 
 # add counts              
 for(i in seq(1,dim(vcf)[1])){
-    sam_i <- samples[match(as.integer(strsplit(as.character(vcf$P20[i]), ",")[[1]]), samples$id),]
+    sam_i <- samples[match(as.integer(strsplit(as.character(vcf$P20[i]), ",")[[1]]), samples$sid),]
     inds_i <- sam_i$individual
     lib_i <- sam_i$Illumina.lane
     for(j in match(inds_i,inds)){
@@ -185,27 +184,35 @@ for(i in seq(1,dim(vcf)[1])){
     }
 }
 
-
 colnames(indc) <- paste("Ind",inds,sep="")
 colnames(libc) <- libs
+
+indc <- data.frame(indc)
+libc <- data.frame(libc)
 
 vcf$P20SizeInd <- apply(indc,1,max)
 vcf$P20SizeLib <- apply(libc, 1, function(x){length(x[which(x>0)])})
 vcf$P20LibMax <- apply(libc,1,max)
 
-features<-c("Chrm","Pos","Ref"
-,"Alt","Amp"
-,"MaxP","P20"
-,"P50","Phred"
-,"AC_NFE","AC"
-,"AF","CNT","Cat"
-,"MdCov","MxRate"
-,"logRate","Rep", "RelPos"
-,"RateRank","P20Size", "P20SizeInd", "P20SizeLib" ,"P20SizePvlRank", "PvlRank", "Amplen", "Mut", seq(1,288))
+## add mut patterns
+varmut <- apply(vcf[,c("Ref", "Alt")], 1, function(x){
+     mutptn[which(as.character((x[1])) ==  mutptn[,3] & as.character((x[2])) ==  mutptn[,4]),5]
+})
 
-vcfout <- cbind(anno, indc, libc, vcf[,features])
+vcf$Mut <- varmut
 
-#save.image("vcf.added.Rdata")
+## output table
+features <- colnames(vcf)[which(! colnames(vcf) %in% seq(1,288))]
+features <- features[!features %in% c("Chr", "Start", "End", "X",
+                                       "Chrm", "Pos", "Ref1", "Alt1")]
+features <- c(features, seq(1,288))
+
+vcfout <- cbind(vcf[, c("Chrm", "Pos", "Ref", "Alt")],
+                indc, libc, vcf[,features])
+
+write.table(vcfout, "vcfout.csv", col.names=TRUE, row.names=FALSE, sep=",")
+
+save.image("2015-07-23_processed.Rdata")
 
 ############################################################
 ## Mut Pattern Per lane
@@ -231,7 +238,6 @@ ggplot(agg, aes(x=Lib, y=Count, fill=Mut)) + geom_bar(stat="identity") +
 dev.off()
 
 
-
 vcfmutptnlibfrq <- data.frame(t(apply(vcfmutptn[,1:16], 1, function(x){x/sum(x)})))
 vcfmutptnlibfrq$Mut <- vcfmutptn$Mut
 vcfmutptnlibfrq <- melt(vcfmutptnlibfrq, id=c("Mut"))
@@ -249,8 +255,66 @@ ggplot(vcfmutptnlibmelt, aes(x=Lib, y=value, group=Mut, color=Mut)) + geom_point
 dev.off()
 
 ############################################################
+## Pick Sites
+############################################################
+
+## fltidx <- which(vcf$MdCov>5000 & vcf$MxRate>0 & (vcf$PvlRank<100 | vcf$RateRank<100 | vcf$Rep == "Rep") &  vcf$P20Size>1)
+
+badlibidx <- which(vcf$P20LibMax>=3 & vcf$P20SizeLib == 1)
+
+topidx <- which(vcf$MdCov>5000 & vcf$MxRate>0 & vcf$RelPos>2 & (vcf$Rep == "Rep" | vcf$MxRateRank < 500))
+topidx <- topidx[!topidx %in% badlibidx]              
+
+n <- length(unique(vcf[topidx, "Pos"]))
+
+#####################################################################
+## Make a file for Simon in a format similar to the CGP eyelid paper
+####################################################################
+
+res <- c()
+p20i <- which(colnames(vcf) == "P20")
+
+for(i in topidx){
+    x <- vcf[i,]
+    sami <- strsplit(lapply(x[p20i], as.character)[[1]], ",")[[1]]
+    for(s in sami){
+        ct <- as.numeric(strsplit(lapply(x[which(colnames(vcf) == s)], as.character)[[1]], ",")[[1]])
+        cv <- sum(ct)
+        mt <- ct[which(x$Alt == a.let)]
+        row <- c(s, x$Chrm, x$Pos, as.character(x$Ref),
+                 as.character(x$Alt), mt, cv,
+                 as.character(x$Amp),
+                 as.character(x$ExonicFunc.ensGene),
+                 as.character(x$AAChange.refGene))
+        res <- rbind(res, row)
+    }
+}
+
+resd <- as.data.frame(res)
+
+fields <- c("sid", "Chrm", "Pos", "Ref", "Alt",
+                   "MutCount", "Coverage", "Amplicon",
+                    "ExonicFunc", "AminoAcidChange")
+colnames(resd) <- fields
+
+resd.sam <- merge(resd, samples, by.x=c("sid"), by.y=c("sid"))
+resd.out <- resd.sam[,c(fields, "genomes.per.bit", "Ind.Slide.sample")]
+
+write.table(resd.out, "variants.csv", col.names=TRUE, row.names=FALSE, sep=",")
+
+save.image("2015-07-23_processed.Rdata")
+
+
+
+############################################################
 ## Enrichment
 ############################################################
+expcat <- countenrich(vcf[fltidx,])
+pdf(paste("expcounts_top.",n,".pdf",sep=""))
+ggplot(expcat, aes(x=Category, y=Counts,fill=Type)) +
+    geom_bar(stat="identity", position="dodge") +
+        ggtitle(paste("MinCov>5000 & (PvlRank<100 or RateRank<100 or Rep) & Size>1"," n=",n, sep=""))
+dev.off()
 
 countenrich <- function(vcf){
     n.var <- dim(vcf)[1]
@@ -272,14 +336,6 @@ countenrich <- function(vcf){
     expcat
 }
 
-fltidx <- which(vcf$MdCov>5000 & vcf$MxRate>0 & (vcf$PvlRank<100 | vcf$RateRank<100 | vcf$Rep == "Rep") &  vcf$P20Size>1)
-n <- length(unique(vcfout$Pos[fltidx]))
-expcat <- countenrich(vcf[fltidx,])
-pdf(paste("expcounts_top.",n,".pdf",sep=""))
-ggplot(expcat, aes(x=Category, y=Counts,fill=Type)) +
-    geom_bar(stat="identity", position="dodge") +
-        ggtitle(paste("MinCov>5000 & (PvlRank<100 or RateRank<100 or Rep) & Size>1"," n=",n, sep=""))
-dev.off()
 
 ############################################################
 ## Explore
