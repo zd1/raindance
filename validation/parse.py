@@ -4,7 +4,7 @@ import os
 
 import cPickle
 import gzip
-
+import argparse
 import numpy as np
 import pdb
 import re
@@ -17,18 +17,22 @@ import logging as LG
 LG.basicConfig(level=LG.INFO)
 
 params = {
-    # "sourcedir": "/hts/data6/miseq/agoriely/2015-07-07",
-    # "outdir":"/home/crangen/zding/projects/raindance/mip/scan",
-    # "design": "/home/crangen/zding/projects/raindance/mip/scan/design.variant",
-    # "tagsToWriteMolID":[],
-    "sourcedir": "/Users/zd1/volumn/miseq",
-    "outdir":"/Users/zd1/cloud/data/raindance/miseq",
-    "design": "/Users/zd1/cloud/data/raindance/miseq/mip/design.variant",
+    "sourcedir": "/hts/data6/miseq/agoriely/2015-07-07",
+    "fastqdir": "/home/crangen/zding/projects/raindance/mip/fq",
+    "bamdir": "/home/crangen/zding/projects/raindance/mip/bam",
+    "outdir":"/home/crangen/zding/projects/raindance/mip/scan",
+    "design": "/home/crangen/zding/projects/raindance/mip/scan/design.variant",
+
+    # "sourcedir": "/Users/zd1/volumn/miseq",
+    # "fastqdir": "/Users/zd1/cloud/data/raindance/miseq/fq",
+    # "bamdir": "/Users/zd1/cloud/data/raindance/miseq/bam",
+    # "outdir":"/Users/zd1/cloud/data/raindance/miseq",
+    # "design": "/Users/zd1/cloud/data/raindance/miseq/mip/design.variant",
     "n_randomcode": 5,
     "probelen": 30,
     "ksize": 8
 }
-
+    
 def run_molid():
     run = Analysis()
     run.count_molid()
@@ -45,8 +49,8 @@ def run_bam():
         tag,sam,ln = m.groups()
         LG.info("scanning run %s, sample %s"%(tag, sam ))
         run.classify_bam(bam, tag, design, params["outdir"])
-    
-def run():
+            
+def process_fastq():
     design = MIPdesign(params["design"], params["ksize"])
     design.loaddesign()
     design.build_hash()
@@ -58,8 +62,6 @@ def run():
     for fq in fastqs:
         m = re.search(".*\/(.*)_(S.+)_(L.+)_(R.+)_001.fastq.gz",fq)
         tag,sam,ln,rd = m.groups()
-        if tag != "Tes3D2":
-            continue
         if not tagfq.has_key(tag):
             tagfq[tag] = {}
             tagfq[tag]["Lane"] = []
@@ -74,8 +76,7 @@ def run():
         r1fq = tagfq[tag]["R1"]
         r2fq = tagfq[tag]["R2"]
         LG.info("scanning run %s, \nread1 %s \nread2 %s "%(tag, r1fq, r2fq ))
-        run.classify_fastq(r1fq, r2fq, tag, design, params["outdir"])
-    pass
+        run.remove_mid_fastq(r1fq, r2fq, tag, params["fastqdir"])
 
 class BCcounter:
     def __init__(self):
@@ -276,6 +277,71 @@ class Analysis:
         ofh.close()
                     
         pass
+
+    def remove_mid_fastq(self, r1fq, r2fq, tag, outdir):
+        '''remote molcular IDs from reads in fastq files.
+        the id is consisted of the first five bases of read1 plus
+        the first five bases of read2. we add that to the read name.
+        Note that we need to ensure that read1 and read2 have a same
+        name.
+        '''
+        fastq_read1 = r1fq
+        fastq_read2 = r2fq
+        LG.info("read1 file %s "%fastq_read1)
+        LG.info("read2 file %s "%fastq_read2)
+        
+        fastq_out_read1 = outdir + "/" + tag  + "_1.ps.gz"
+        fastq_out_read2 = outdir + "/" + tag  + "_2.ps.gz"
+
+        LG.info("read1 output file %s "%fastq_out_read1)
+        LG.info("read2 output file %s "%fastq_out_read2)
+        
+        LG.info("%s"%tag)
+        LG.info(" read1:%s"%fastq_read1)
+        LG.info(" read2:%s"%fastq_read2)
+        
+        handle1 = gzip.open(fastq_read1, "r")
+        handle2 = gzip.open(fastq_read2, "r")
+        output_handle1 = gzip.open(fastq_out_read1, "w")
+        output_handle2 = gzip.open(fastq_out_read2, "w")
+            
+        record1_iterator = SeqIO.parse(handle1, "fastq")
+        record2_iterator = SeqIO.parse(handle2, "fastq")
+        
+        start = params["n_randomcode"]
+
+        c = 0
+        while True:
+            c+=1
+            if (c%10000 == 0):
+                LG.info("scanned %d reads"%c)
+            try:
+                record1 = next(record1_iterator, None)
+                record2 = next(record2_iterator, None)
+            except:
+                LG.error("error when scanning, skip read")
+                continue
+            if not record1 or not record2:
+                LG.info("skip read read1:%s read2:%s"%(record1, record2))
+                break
+
+            mid = str(record1.seq[:start]) + str(record2.seq[:start])
+            record1 = record1[start:]
+            record2 = record2[start:]
+            record1.id = mid + "|" + record1.id
+            record2.id = mid + "|" + record2.id
+            record1.description = ""
+            record2.description = ""
+            output_handle1.write(record1.format("fastq"))
+            output_handle2.write(record2.format("fastq"))
+
+        handle1.close()
+        handle2.close()
+        output_handle1.close()
+        output_handle2.close()
+
+        LG.info("Completed scanning for %s"%tag)
+
     
     def classify_fastq(self, r1fq, r2fq, tag, design, outdir):
         
@@ -531,11 +597,17 @@ def basei(basestr):
         'N': 4}
     return alphabet[basestr]
     
-    
-
-
-    
 if __name__ == '__main__':
-    #run_molid()
-    # run()
-    run_bam()
+    parser = argparse.ArgumentParser(description='Raindance analysis')
+    parser.add_argument('--fastq', action='store_true', default=False)
+    args = parser.parse_args()
+    LG.info(args)
+    try:
+        if args.fastq:
+            LG.info("processing fastq")
+            process_fastq()
+        else:
+            print "need to specify --fastq, --bam"
+            sys.exit(1)
+    except:
+        sys.exit(1)
