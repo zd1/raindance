@@ -17,19 +17,20 @@ import logging as LG
 LG.basicConfig(level=LG.INFO)
 
 params = {
+    # wimm
     "sourcedir": "/hts/data6/miseq/agoriely/2015-07-07",
     "fastqdir": "/home/crangen/zding/projects/raindance/mip/fq",
     "bamdir": "/home/crangen/zding/projects/raindance/mip/bam",
     "outdir":"/home/crangen/zding/projects/raindance/mip/scan",
     "design": "/home/crangen/zding/projects/raindance/mip/scan/design.variant",
-
+    # local
     # "sourcedir": "/Users/zd1/volumn/miseq",
     # "fastqdir": "/Users/zd1/cloud/data/raindance/miseq/fq",
-    # "bamdir": "/Users/zd1/cloud/data/raindance/miseq/bam",
+    # "bamdir": "/Users/zd1/volumn/wimm/raindance/mip/aln",
     # "outdir":"/Users/zd1/cloud/data/raindance/miseq",
     # "design": "/Users/zd1/cloud/data/raindance/miseq/mip/design.variant",
     "n_randomcode": 5,
-    "probelen": 30,
+    "probelen": 25,
     "ksize": 8
 }
     
@@ -37,27 +38,9 @@ def run_molid():
     run = Analysis()
     run.count_molid()
 
-def run_bam():
-    design = MIPdesign(params["design"], params["ksize"])
-    design.loaddesign()
-    design.build_hash()
-    
-    run = Analysis()
-    bams = glob.glob("%s/*.sorted.bam"%params["sourcedir"])
-    for bam in bams:
-        m = re.search(".*\/(.*)_(S.+)_(L.+).sorted.bam", bam)
-        tag,sam,ln = m.groups()
-        LG.info("scanning run %s, sample %s"%(tag, sam ))
-        run.classify_bam(bam, tag, design, params["outdir"])
-            
-def process_fastq():
-    design = MIPdesign(params["design"], params["ksize"])
-    design.loaddesign()
-    design.build_hash()
-    
-    run = Analysis()
+        
+def samplelist():
     fastqs = glob.glob("%s/*fastq.gz"%params["sourcedir"])
-
     tagfq = {}
     for fq in fastqs:
         m = re.search(".*\/(.*)_(S.+)_(L.+)_(R.+)_001.fastq.gz",fq)
@@ -69,35 +52,74 @@ def process_fastq():
         tagfq[tag][rd]=fq
         tagfq[tag]["Lane"].append(ln)
         tagfq[tag]["Sam"].append(sam)
-    
+        
+    ofh = open("%s/samples"%params["fastqdir"], "w")
     for tag in tagfq.keys():
         if re.search("Undetermined", tag): 
             continue
         r1fq = tagfq[tag]["R1"]
         r2fq = tagfq[tag]["R2"]
-        LG.info("scanning run %s, \nread1 %s \nread2 %s "%(tag, r1fq, r2fq ))
-        run.remove_mid_fastq(r1fq, r2fq, tag, params["fastqdir"])
+        ofh.write("%s,%s,%s"%(tag, r1fq, r2fq) + "\n")
+    ofh.close()
+    
+def process_fastq():
+    samples = []
+    read1 = []
+    read2 = []
+    ofh = open("%s/samples"%params["fastqdir"], "r")
+    outlist = open("%s/samples_trim"%params["fastqdir"], "w")
+    for line in ofh:
+        tag, r1fq, r2fq = line.strip().split(",")
+        samples.append(tag)
+        read1.append(r1fq)
+        read2.append(r2fq)
+        outlist.write("%s,%s/%s_1.ps.gz,%s/%s_2.ps.gz\n"%(tag,
+                                                       params["fastqdir"], tag,
+                                                       params["fastqdir"], tag))
+    ofh.close()
+    outlist.close()
+    
+    i = int(os.environ['SGE_TASK_ID']) - 1
+    run = Analysis()
+    LG.info("scanning run %s, \nread1 %s \nread2 %s "%(samples[i], read1[i], read2[i]))
+    run.remove_mid_fastq(read1[i], read2[i], samples[i], params["fastqdir"])
 
-class BCcounter:
+
+def scan_bam():
+    samples = []
+    ofh = file("%s/samples"%params["fastqdir"], "r")
+    for line in ofh:
+        tag = line.strip().split(",")[0]
+        samples.append(tag)
+    ofh.close()
+
+    design = MIPdesign(params["design"], params["ksize"])
+    design.loaddesign()
+    design.build_hash()
+
+    i = int(os.environ['SGE_TASK_ID']) - 1
+    run = Analysis()
+    sam = samples[i]
+    bam = "%s/%s.sorted.bam"%(params["bamdir"], sam)
+    LG.info("scanning sample %s"%(sam))
+    run.classify_bam(bam, tag, design, params["outdir"])
+        
+class AlleleCounter:
     def __init__(self):
-        self.nTotal = 0
-        self.r1basecount = {
+        self.allele = {
             "A":0,
             "C":0,
             "G":0,
             "T":0,
-            "N":0,
+            "N":0}
+        
+        self.molid = {
+            "A":set([]),
+            "C":set([]),
+            "G":set([]),
+            "T":set([]),
+            "N":set([])
             }
-        self.r2basecount = {
-            "A":0,
-            "C":0,
-            "G":0,
-            "T":0,
-            "N":0,
-            }
-
-        self.randoms = set([])
-
         
 class MIPdesign:
     '''note we expect the design file in the following format, 
@@ -140,7 +162,8 @@ class MIPdesign:
                 self.mipvariant[pid].append(variantpos)
             if not self.mippos.has_key(pid):
                 self.mippos[pid] = [mipstart, mipend]
-            read1 = revecomp("".join(d[1].split()).upper())
+            # read1 = revecomp("".join(d[1].split()).upper())
+            read1 = "".join(d[1].split()).upper()
             read2 = "".join(d[2].split()).upper()
             self.read1prob.append(read1)
             self.read2prob.append(read2)
@@ -196,87 +219,43 @@ class Analysis:
         nTotal = 0 # total number of pairs of reads for this run
         nNoMIP = 0 # number of pairs of reads with barcode not found in either read1 or read2
         nNotpaired = 0 # number of pairs of reads with barcode not matched between read1 and read2
-        bcounter = {}
-        bcounter[tag] = {}
     
         samfile = pysam.Samfile("%s"%bam, "rb" )
-
+        ofh = open("%s/%s.count"%(outdir, tag), "w")
         for mip in design.mipvariant.keys():
-            if not bcounter[tag].has_key(mip):
-                bcounter[tag][mip] = {}
-
             variants = design.mipvariant[mip]
             for vt in variants:
                 chrm, pos = vt.split(":")
                 pos = int(pos)
-                if not bcounter[tag][mip].has_key(pos):
-                    bcounter[tag][mip][pos] = BCcounter()
-                posdata = {}
-                rname_mid = {}
+                ac = AlleleCounter()
                 for alignedread in samfile.fetch(chrm, pos-1, pos):
                     nTotal += 1
                     if nTotal % 10000 == 0:
                         LG.info("processed %d reads"%nTotal)
 
                     seq = alignedread.seq
-                    if alignedread.is_read1:
-                        mipid, anno = read1hash.seedkmerMaxOnly(seq[params["n_randomcode"]:params["probelen"]], 3)
-                    else:
-                        mipid, anno = read2hash.seedkmerMaxOnly(seq[params["n_randomcode"]:params["probelen"]], 3)
-                    if mip != mipid:
-                        nNoMIP +=1
-                        continue
-
-                    if not posdata.has_key(alignedread.qname):
-                        # bases by [r1,r2]
-                        posdata[alignedread.qname] = np.zeros((5,2), 'i8')
-                    if not rname_mid.has_key(alignedread.qname):
-                        rname_mid[alignedread.qname] = {"r1":"", "r2":""}
-
-                    if alignedread.is_read1:
-                        rname_mid[alignedread.qname]["r1"] = seq[:params["n_randomcode"]]
-                        ri = 0
-                    else:
-                        rname_mid[alignedread.qname]["r2"] = seq[:params["n_randomcode"]]
-                        ri = 1
+                    mid = alignedread.qname.split("|")[0][1:]
                     
                     # get variant position p
                     pi = [p for p in range(len(alignedread.positions)) if alignedread.positions[p] == pos]
                     if len(pi) == 0:
                         continue
+                    nucleotide = alignedread.query[pi[0]]
+                    ac.allele[nucleotide] += 1
+                    ac.molid[nucleotide].add(mid)
 
-                    bi = basei(alignedread.query[pi[0]])
-                    posdata[alignedread.qname][bi,ri] += 1
-
-                for readpair in posdata.keys():
-                    _mid = rname_mid[readpair]["r1"] + rname_mid[readpair]["r2"]
-                    if len(_mid) < 10:
-                        nNotpaired += 1 
-                    bcounter[tag][mip][pos].randoms.add(_mid)
-                    bcounter[tag][mip][pos].nTotal = np.sum(posdata[readpair])
-                    for b in ["A", "C", "G", "T", "N"]:
-                        bcounter[tag][mip][pos].r1basecount[b] = posdata[readpair][basei(b), 0]
-                        bcounter[tag][mip][pos].r2basecount[b] = posdata[readpair][basei(b), 1]
+                row = [tag, mip, str(pos)]
+                for b in ["A", "C", "G", "T", "N"]:
+                    row.append("%s:%d:[1]%d:[2]%d:[3]%d:[4]%d"%(b,
+                                                 ac.allele[b],
+                                                 len(ac.molid[b]),
+                                                 countUniq(ac.molid[b], ndiff=2),
+                                                 countUniq(ac.molid[b], ndiff=3),
+                                                 countUniq(ac.molid[b], ndiff=4)))
+                ofh.write(",".join(row) + "\n")
                 break
         samfile.close()
-        
-        ofh = open("%s/%s.count"%(outdir, tag), "w")        
-        for p in bcounter[tag][mip].keys(): # for each variant position
-            row = [tag, mip, nTotal, nNoMIP, nNotpaired,
-                   bcounter[tag][mip][p].nTotal, len(bcounter[tag][mip][p].randoms)]
-            pdb.set_trace()
-            for r in [0,1]:
-                if r == 0:
-                    ct = bcounter[tag][mip][pos].r1basecount
-                else:
-                    ct = bcounter[tag][mip][pos].r2basecount
-                for b in ["A", "C", "G", "T", "N"]:
-                    row.append("%s:%d"%(b, ct[b]))
-            ofh.write(",".join(row) + "\n")
-
         ofh.close()
-                    
-        pass
 
     def remove_mid_fastq(self, r1fq, r2fq, tag, outdir):
         '''remote molcular IDs from reads in fastq files.
@@ -341,100 +320,6 @@ class Analysis:
         output_handle2.close()
 
         LG.info("Completed scanning for %s"%tag)
-
-    
-    def classify_fastq(self, r1fq, r2fq, tag, design, outdir):
-        
-        read1hash = design.read1hash
-        read2hash = design.read2hash
-        nTotal = 0 # total number of pairs of reads for this run
-        nNoMIP = 0 # number of pairs of reads with barcode not found in either read1 or read2
-        nNotpaired = 0 # number of pairs of reads with barcode not matched between read1 and read2
-        bcounter = {}
-        # count base frequencies
-        molidmx = np.zeros((5,2*params["n_randomcode"]))
-        LG.info(" tag:%s"%tag)
-        with gzip.open(r1fq, 'r') as hdl1, gzip.open(r2fq, 'r') as hdl2, open("%s/%s.molid"%(outdir, tag), "w") as ofhid:
-            for read1, read2 in zip(SeqIO.parse(hdl1, "fastq"), SeqIO.parse(hdl2, "fastq")):
-                nTotal += 1
-                if nTotal % 10000 == 0:
-                    LG.info("processed %d reads"%nTotal)
-                mipid1, anno1 = read1hash.seedkmerMaxOnly(str(read1.seq)[params["n_randomcode"]:params["probelen"]], 1)
-                mipid2, anno2 = read2hash.seedkmerMaxOnly(str(read2.seq)[params["n_randomcode"]:params["probelen"]], 1)
-                if mipid1 is None or mipid2 is None:
-                    nNoMIP += 1
-                    continue
-                if mipid1 != mipid2:
-                    nNotpaired += 1
-                    continue
-                if not design.mipvariant.has_key(mipid1):
-                    LG.error("found mip ID not in design %s"%mipid1)
-                    continue
-                
-
-                # tag -> mips -> molids
-                if not bcounter.has_key(tag):
-                    bcounter[tag] = {}
-                if not bcounter[tag].has_key(mipid1):
-                    bcounter[tag][mipid1] = {"read1": {}, "read2": {}}
-                    
-                # molecular ID. combine r1 and r2 as they are from a same molecule
-                molid = str(read1.seq)[:params["n_randomcode"]] + str(read2.seq)[:params["n_randomcode"]]
-
-                mipstart, mipend = design.mippos[mipid1]
-                offsetextend = 4
-                for vpos in design.mipvariant[mipid1]:
-                    assert mipstart < vpos and mipend > vpos, "error in variant position %d"%vpos
-                    offset1 = vpos - mipstart + params["n_randomcode"]
-                    if offset1 >= 0 and offset1 < 100:
-                        vbase_read1 = str(read1.seq)[(offset1-offsetextend):(offset1+offsetextend+1)]
-                        if not bcounter[tag][mipid1]["read1"].has_key(vpos):
-                            bcounter[tag][mipid1]["read1"][vpos]={}
-                        if not bcounter[tag][mipid1]["read1"][vpos].has_key(vbase_read1):
-                            bcounter[tag][mipid1]["read1"][vpos][vbase_read1] = BCcounter()
-                        bcounter[tag][mipid1]["read1"][vpos][vbase_read1].nTotal +=1
-                        bcounter[tag][mipid1]["read1"][vpos][vbase_read1].randoms.add(molid)
-                        
-                    offset2 = mipend - vpos + params["n_randomcode"]
-                    vbase_read2 = str(read2.seq)[(offset2-offsetextend):(offset2+offsetextend+1)]
-                    if offset2 >= 0 and offset2 < 100:
-                        if not bcounter[tag][mipid1]["read2"].has_key(vpos):
-                            bcounter[tag][mipid1]["read2"][vpos]={}
-                        if not bcounter[tag][mipid1]["read2"][vpos].has_key(vbase_read2):
-                            bcounter[tag][mipid1]["read2"][vpos][vbase_read2] = BCcounter()
-                        bcounter[tag][mipid1]["read2"][vpos][vbase_read2].nTotal +=1
-                        bcounter[tag][mipid1]["read2"][vpos][vbase_read2].randoms.add(molid)
-                # if mipid1 in {"92_PTEN_exon8_p.T319P_49_2_46", "431_FGFR1_exon12_p.K477N_600_2_21",
-                #               "131_HRAS_exon3_p.Q43H_166853_2_63", "222_TP53_exon2_p.G67V_0103_3_30"}:
-                #     ofhid.write("%s,%s\n"%(mipid1, molid))
-
-                
-                ## read1.seq (find the variant A/G)
-                ## read2.seq (find the mutation)
-                ## print "%s,%s,%s,%s"%(tag, molid, read1.seq[52:55], read2.seq[24:30])
-
-                for bi in range(len(molid)):
-                    molidmx[self._baseidx(molid[bi]),bi] += 1
-                
-        with open("%s/%s.count"%(outdir, tag), "w") as ofh:
-            for mip in bcounter[tag].keys(): # for each sample
-                for rd in ["read1", "read2"]: # for each read
-                    if bcounter[tag][mip].has_key(rd):
-                        for p in bcounter[tag][mip][rd].keys(): # for each variant position
-                            record = bcounter[tag][mip][rd][p]
-                            for nts in record.keys(): # write out pos, number of reads, number of molIDs
-                                row = [tag, mip, nTotal, nNoMIP, nNotpaired]
-                                row.append("rd:%s|nt:%s|p:%s|t:%d|r:%d"%(rd, nts, p,record[nts].nTotal, len(record[nts].randoms)))
-                                row = map(str, row)
-                                ofh.write(",".join(row) + "\n")
-                
-        # convert to frequency
-        molidmx = molidmx/molidmx.sum(axis=0)
-        with open("%s/%s.basemx"%(outdir, tag), "w") as ofh:
-            for i in range(5):
-                row = [tag]
-                row.extend(molidmx[i,:])
-                ofh.write(",".join(map(str, row))+ "\n")
 
     def compare_str(self, str1, str2):
         ndiff  = 0
@@ -574,7 +459,39 @@ def clz(filename):
         myfile.close()
         return myobject
 
+def stringdiff(s1,s2):
+    ndiff = 0
+    assert(len(s1) == len(s2))
+    for i in range(len(s1)):
+        if s1[i] != s2[i]:
+            ndiff += 1
+    return ndiff
+    
+def countUniq(inputset, ndiff=1):
+    if ndiff == 1:
+        return len(inputset)
+    sortedset = sorted(inputset)
+    pre = None
+    count = 0
+    for i in range(len(sortedset)):
+        if pre is None:
+            count +=1
+            pre = sortedset[i]
+            continue
+        nd = stringdiff(sortedset[i], pre)
+        if nd >= ndiff:
+            count +=1
+            pre = sortedset[i]
+    return count
 
+def testcountunique():
+    x = set(["AACCTT",
+             "AACCTA",
+            "AACCTC",
+            "AACCCG",
+            "AACCKN"])
+    print countUniq(x, ndiff=2)
+    
 def revecomp(input):
 
     alphabet = {
@@ -598,14 +515,23 @@ def basei(basestr):
     return alphabet[basestr]
     
 if __name__ == '__main__':
+
     parser = argparse.ArgumentParser(description='Raindance analysis')
+    parser.add_argument('--pairup', action='store_true', default=False)
     parser.add_argument('--fastq', action='store_true', default=False)
+    parser.add_argument('--bam', action='store_true', default=False)
     args = parser.parse_args()
     LG.info(args)
     try:
-        if args.fastq:
+        if args.pairup:
+            LG.info("making a sample list")
+            samplelist()
+        elif args.fastq:
             LG.info("processing fastq")
             process_fastq()
+        elif args.bam:
+            LG.info("scan bam to quantify alleles")
+            scan_bam()
         else:
             print "need to specify --fastq, --bam"
             sys.exit(1)
