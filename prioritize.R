@@ -11,7 +11,7 @@ samples <- read.table("/Users/zd1/cloud/data/raindance/meta/samples.csv", sep=",
 ######################################################################################
 
 # vcf
-vcf=read.table("/Users/zd1/volumn/wt/raindance/call/simon/all.flt.anvinput", header=TRUE, sep="\t", comment.char="")
+vcf=read.table("/Users/zd1/volumn/wt/raindance/call/simon/all.flt.anvinput", header=TRUE, sep="\t", comment.char="", stringsAsFactors=FALSE)
 colnames(vcf)[1:10] <- c("Chrm", "Pos", "Pos", "Ref", "Alt",
                          "Amp", "MaxP", "P20", "P50", "X")
 colnames(vcf)[11:298] <- seq(1,288)
@@ -139,10 +139,8 @@ sami <- which(colnames(vcf) %in% seq(1,288))
 
 vcfmeta <- apply(vcf, 1, function(x){
     x <- x[sami] # samples
-    vsc <- lapply(x,function(y){as.numeric(strsplit(as.character(y[1][[1]]), ",")[[1]])})
+    vsc <- lapply(x, function(y) {as.numeric(strsplit(strsplit(as.character(y[1]), ":")[[1]][1], ",")[[1]])})
     mdcov <- median(sapply(vsc, sum))
-    ref <- a.let[as.numeric(names(sort(table(sapply(vsc, function(x){which.max(x)})), decreasing=TRUE))[1])]
-    alt <- a.let[as.numeric(names(sort(table(sapply(vsc, function(x){order(x, decreasing=TRUE)[2]})), decreasing=TRUE))[1])]
     mxrate <- max(sapply(vsc, function(x){xi <- order(x, decreasing=TRUE)[2]; x[xi]/sum(x)}), na.rm=TRUE)
     c(ref, alt, mdcov, mxrate)
 })
@@ -151,12 +149,28 @@ vcfmeta <- apply(vcf, 1, function(x){
 ## vcf$Alt1 <- vcfmeta[2,]
 vcf$MdCov <- as.numeric(vcfmeta[3,])
 vcf$MxRate <- as.numeric(vcfmeta[4,])
-vcf$MxRateRank <- rank(vcf$MxRate)
+vcf$MxRateRank <- rank(-vcf$MxRate)
+vcf$MaxP[which(!is.finite(vcf$MaxP))] <- 300
 vcf$PRank <- rank(-vcf$MaxP)
 
-# Replicated
-repi <- which(duplicated(vcf[,c("Chrm", "Pos", "Alt")]) | duplicated(vcf[,c("Chrm", "Pos", "Alt")], fromLast = TRUE))
+# Replicated - a variant identified in overlapping amplicons in *same* samples
+vcf.rep <- vcf[,c("Chrm", "Pos", "Alt", "P20")]
+s <- strsplit(as.character(vcf.rep$P20), split = ",")
+vcf.rep.exd <- data.frame(Chrm=rep(vcf.rep$Chrm, sapply(s, length)),
+                          Pos=rep(vcf.rep$Pos, sapply(s, length)),
+                          Alt=rep(vcf.rep$Alt, sapply(s, length)),
+                          P20 = unlist(s))
+
+repi <- which(duplicated(vcf.rep.exd) | duplicated(vcf.rep.exd, fromLast = TRUE))
+vcf.rep <- vcf.rep.exd[repi,]
+
 vcf$Rep <- "Uni"
+
+repi <- which(outer(vcf$Chrm, vcf.rep$Chrm, "==") & 
+          outer(vcf$Pos,  vcf.rep$Pos, "==") &
+              outer(vcf$Alt,  vcf.rep$Alt, "=="), 
+      arr.ind=TRUE)
+
 vcf$Rep[repi] <- "Rep"
 vcf$Rep <- as.factor(vcf$Rep)
 
@@ -257,15 +271,26 @@ dev.off()
 ############################################################
 ## Pick Sites
 ############################################################
+load("2015-07-23_processed.Rdata")
 
 ## fltidx <- which(vcf$MdCov>5000 & vcf$MxRate>0 & (vcf$PvlRank<100 | vcf$RateRank<100 | vcf$Rep == "Rep") &  vcf$P20Size>1)
 
+
 badlibidx <- which(vcf$P20LibMax>=3 & vcf$P20SizeLib == 1)
 
-topidx <- which(vcf$MdCov>5000 & vcf$MxRate>0 & vcf$RelPos>2 & (vcf$Rep == "Rep" | vcf$MxRateRank < 500))
+topidx <- which(vcf$MdCov>5000 & vcf$MxRate>0 & vcf$RelPos>2 & vcf$MxRate <0.03 &  vcf$MxRateRank < 3000 & (vcf$Rep == "Rep" | vcf$PRank< 5000))
 topidx <- topidx[!topidx %in% badlibidx]              
+vcftop <- vcf[topidx,]
+length(unique(vcftop[, "Pos"]))
 
-n <- length(unique(vcf[topidx, "Pos"]))
+vcftop[which(vcftop$Pos==15303236), c("MaxP", "MxRate", "MxRateRank")]
+
+write.table(vcfout[topidx, ], "vcfout.csv", col.names=TRUE, row.names=FALSE, sep=",")
+
+checkvariants <- c(123276893, 30729984, 1807371, 140453132, 113934759, 39249807)
+checkvariants %in% vcf$Pos[topidx]
+
+
 
 #####################################################################
 ## Make a file for Simon in a format similar to the CGP eyelid paper
@@ -278,11 +303,16 @@ for(i in topidx){
     x <- vcf[i,]
     sami <- strsplit(lapply(x[p20i], as.character)[[1]], ",")[[1]]
     for(s in sami){
-        ct <- as.numeric(strsplit(lapply(x[which(colnames(vcf) == s)], as.character)[[1]], ",")[[1]])
+        d <- strsplit(lapply(x[which(colnames(vcf) == s)], as.character)[[1]], ":")[[1]]
+        ct <- as.numeric(strsplit(d[1], ",")[[1]])
+        pv <- as.numeric(strsplit(d[2], ",")[[1]])
         cv <- sum(ct)
         mt <- ct[which(x$Alt == a.let)]
+        p <- pv[which(x$Alt == a.let)]
         row <- c(s, x$Chrm, x$Pos, as.character(x$Ref),
-                 as.character(x$Alt), mt, cv,
+                 as.character(x$Alt), mt, cv, mt/cv,
+                 as.character(p),
+                 as.character(x$MaxP),
                  as.character(x$Amp),
                  as.character(x$ExonicFunc.ensGene),
                  as.character(x$AAChange.refGene))
@@ -293,7 +323,7 @@ for(i in topidx){
 resd <- as.data.frame(res)
 
 fields <- c("sid", "Chrm", "Pos", "Ref", "Alt",
-                   "MutCount", "Coverage", "Amplicon",
+                   "MutCount", "Coverage", "Rate", "mlogP", "MaxP", "Amplicon",
                     "ExonicFunc", "AminoAcidChange")
 colnames(resd) <- fields
 
