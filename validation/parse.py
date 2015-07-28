@@ -234,7 +234,6 @@ class Analysis:
         samfile = pysam.Samfile("%s"%bam, "rb" )
         ofh = open("%s/%s.count"%(outdir, sam), "w")
         for mip in design.mipvariant.keys():
-            mip = "45_FGFR2_exon5_p.C227S_79_2_55"
             variants = design.mipvariant[mip]
             for vt in variants:
                 LG.info("mip:%s, variant:%s"%(mip, vt))
