@@ -4,6 +4,7 @@ import os
 import cPickle
 import gzip
 import argparse
+import operator
 import numpy as np
 import pdb
 import re
@@ -113,11 +114,11 @@ class AlleleCounter:
             "N":0}
         
         self.molid = {
-            "A":set([]),
-            "C":set([]),
-            "G":set([]),
-            "T":set([]),
-            "N":set([])
+            "A":[],
+            "C":[],
+            "G":[],
+            "T":[],
+            "N":[]
             }
         
 class MIPdesign:
@@ -161,8 +162,7 @@ class MIPdesign:
                 self.mipvariant[pid].append(variantpos)
             if not self.mippos.has_key(pid):
                 self.mippos[pid] = [mipstart, mipend]
-            # read1 = revecomp("".join(d[1].split()).upper())
-            read1 = "".join(d[1].split()).upper()
+            read1 = revecomp("".join(d[1].split()).upper())
             read2 = "".join(d[2].split()).upper()
             self.read1prob.append(read1)
             self.read2prob.append(read2)
@@ -212,6 +212,18 @@ class Analysis:
         elif idx == 4:
             return 'N'
 
+    def mapfraction(self, cigar):
+        ntotal = 0
+        nmap = 0
+        for c in cigar:
+            if c[0] == 0:
+                nmap += c[1]
+            ntotal += c[1]
+        if ntotal == 0:
+            return 0
+        else:
+            return nmap*1.0/ntotal
+        
     def classify_bam(self, sam, bam, design, outdir):
         read1hash = design.read1hash
         read2hash = design.read2hash
@@ -222,8 +234,10 @@ class Analysis:
         samfile = pysam.Samfile("%s"%bam, "rb" )
         ofh = open("%s/%s.count"%(outdir, sam), "w")
         for mip in design.mipvariant.keys():
+            mip = "45_FGFR2_exon5_p.C227S_79_2_55"
             variants = design.mipvariant[mip]
             for vt in variants:
+                LG.info("mip:%s, variant:%s"%(mip, vt))
                 chrm, pos = vt.split(":")
                 pos = int(pos)
                 ac = AlleleCounter()
@@ -231,8 +245,22 @@ class Analysis:
                     nTotal += 1
                     if nTotal % 10000 == 0:
                         LG.info("processed %d reads"%nTotal)
+                    ## skip paired reads
+                    if not alignedread.is_paired:
+                        continue
+                    ## skip reads with low fraction of bases mapped
+                    if self.mapfraction(alignedread.cigar) < 0.9:
+                        continue
 
+                    ## quantify only reads for the current mip
                     seq = alignedread.seq
+                    if alignedread.is_read1:
+                        mipid, mipanno = design.read1hash.seedkmerMaxOnly(seq[:params["probelen"]], minMatch = 3)
+                    else:
+                        mipid, mipanno = design.read2hash.seedkmerMaxOnly(seq[:params["probelen"]], minMatch = 3)
+                    if mipid != mip:
+                        continue
+                    
                     mid = alignedread.qname.split("|")[0][1:]
                     
                     # get variant position p
@@ -241,18 +269,20 @@ class Analysis:
                         continue
                     nucleotide = alignedread.query[pi[0]-1] # query is 0-based while alignedread is 1-based
                     ac.allele[nucleotide] += 1
-                    ac.molid[nucleotide].add(mid)
-
-                row = [sam, mip, str(pos)]
+                    ac.molid[nucleotide].append(mid)
+                    
+                row = [sam, mip, vt]
                 for b in ["A", "C", "G", "T", "N"]:
-                    row.append("%s,%s,[1]%d,[2]%d,[3]%d,[4]%d"%(b,
-                                                                ac.allele[b],
-                                                                len(ac.molid[b]),
-                                                                countUniq(ac.molid[b], ndiff=2),
-                                                                countUniq(ac.molid[b], ndiff=3),
-                                                                countUniq(ac.molid[b], ndiff=4)))
+                    row.append("%s,%s"%(b, ac.allele[b]))
+                    for ndiff in [1,2,3,4]:
+                        t = Tag()
+                        t.taglist = ac.molid[b]
+                        row.append("[%d]%d{%s}"%(ndiff,
+                                                 t.uniqtags(ndiff),
+                                                 t.histogram(ndiff=2)))
                 ofh.write(",".join(row) + "\n")
-                break
+                del ac
+
         samfile.close()
         ofh.close()
 
@@ -465,6 +495,59 @@ def stringdiff(s1,s2):
         if s1[i] != s2[i]:
             ndiff += 1
     return ndiff
+
+
+class Tag:
+    taglist = []
+    def __init__(self):
+        pass
+    
+    def uniqtags(self, ndiff = 1):
+        tagset = set(self.taglist)
+        if ndiff == 1:
+            return len(tagset)
+        sortedset = sorted(tagset)
+        pre = None
+        count = 0
+        for i in range(len(sortedset)):
+            if pre is None:
+                count +=1
+                pre = sortedset[i]
+                continue
+            nd = stringdiff(sortedset[i], pre)
+            if nd >= ndiff:
+                count +=1
+                pre = sortedset[i]
+        return count
+
+    def histogram(self, ndiff=2, top=10):
+        sortedlist = sorted(self.taglist)
+        pre = None
+        count = 0
+        group = {}
+        for i in range(len(sortedlist)):
+            if pre is None:
+                count +=1
+                pre = sortedlist[i]
+                group[pre] = 1
+                continue
+            nd = stringdiff(sortedlist[i], pre)
+            if not group.has_key(pre):
+                group[pre] = 0
+            group[pre] += 1
+            if nd >= ndiff:
+                count +=1
+                pre = sortedlist[i]
+        sorted_group = sorted(group.items(), key=operator.itemgetter(1), reverse=True)
+        topOccur = {}
+        for g in sorted_group:
+            if not topOccur.has_key(g[1]):
+                topOccur[g[1]] = 1
+            else:
+                topOccur[g[1]] += 1
+            if len(topOccur.keys())>= top:
+                break
+        return sorted(topOccur.items(), reverse=True)
     
 def countUniq(inputset, ndiff=1):
     if ndiff == 1:
@@ -484,12 +567,15 @@ def countUniq(inputset, ndiff=1):
     return count
 
 def testcountunique():
-    x = set(["AACCTT",
+    x = ["AACCTT",
              "AACCTA",
             "AACCTC",
             "AACCCG",
-            "AACCKN"])
-    print countUniq(x, ndiff=2)
+            "AACCKN"]
+    t = Tag()
+    t.taglist = x
+    print t.uniqtags(ndiff=2)
+    print t.histogram(ndiff=2)
     
 def revecomp(input):
 
@@ -514,6 +600,7 @@ def basei(basestr):
     return alphabet[basestr]
     
 if __name__ == '__main__':
+    # testcountunique()
     parser = argparse.ArgumentParser(description='Raindance analysis')
     parser.add_argument('--pairup', action='store_true', default=False)
     parser.add_argument('--fastq', action='store_true', default=False)
