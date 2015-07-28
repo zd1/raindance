@@ -1,4 +1,3 @@
-
 import sys
 import os
 
@@ -20,7 +19,7 @@ params = {
     # wimm
     "sourcedir": "/hts/data6/miseq/agoriely/2015-07-07",
     "fastqdir": "/home/crangen/zding/projects/raindance/mip/fq",
-    "bamdir": "/home/crangen/zding/projects/raindance/mip/bam",
+    "bamdir": "/home/crangen/zding/projects/raindance/mip/aln",
     "outdir":"/home/crangen/zding/projects/raindance/mip/scan",
     "design": "/home/crangen/zding/projects/raindance/mip/scan/design.variant",
     # local
@@ -102,7 +101,7 @@ def scan_bam():
     sam = samples[i]
     bam = "%s/%s.sorted.bam"%(params["bamdir"], sam)
     LG.info("scanning sample %s"%(sam))
-    run.classify_bam(bam, tag, design, params["outdir"])
+    run.classify_bam(sam, bam, design, params["outdir"])
         
 class AlleleCounter:
     def __init__(self):
@@ -213,7 +212,7 @@ class Analysis:
         elif idx == 4:
             return 'N'
 
-    def classify_bam(self, bam, tag, design, outdir):
+    def classify_bam(self, sam, bam, design, outdir):
         read1hash = design.read1hash
         read2hash = design.read2hash
         nTotal = 0 # total number of pairs of reads for this run
@@ -221,7 +220,7 @@ class Analysis:
         nNotpaired = 0 # number of pairs of reads with barcode not matched between read1 and read2
     
         samfile = pysam.Samfile("%s"%bam, "rb" )
-        ofh = open("%s/%s.count"%(outdir, tag), "w")
+        ofh = open("%s/%s.count"%(outdir, sam), "w")
         for mip in design.mipvariant.keys():
             variants = design.mipvariant[mip]
             for vt in variants:
@@ -240,18 +239,18 @@ class Analysis:
                     pi = [p for p in range(len(alignedread.positions)) if alignedread.positions[p] == pos]
                     if len(pi) == 0:
                         continue
-                    nucleotide = alignedread.query[pi[0]]
+                    nucleotide = alignedread.query[pi[0]-1] # query is 0-based while alignedread is 1-based
                     ac.allele[nucleotide] += 1
                     ac.molid[nucleotide].add(mid)
 
-                row = [tag, mip, str(pos)]
+                row = [sam, mip, str(pos)]
                 for b in ["A", "C", "G", "T", "N"]:
-                    row.append("%s:%d:[1]%d:[2]%d:[3]%d:[4]%d"%(b,
-                                                 ac.allele[b],
-                                                 len(ac.molid[b]),
-                                                 countUniq(ac.molid[b], ndiff=2),
-                                                 countUniq(ac.molid[b], ndiff=3),
-                                                 countUniq(ac.molid[b], ndiff=4)))
+                    row.append("%s,%s,[1]%d,[2]%d,[3]%d,[4]%d"%(b,
+                                                                ac.allele[b],
+                                                                len(ac.molid[b]),
+                                                                countUniq(ac.molid[b], ndiff=2),
+                                                                countUniq(ac.molid[b], ndiff=3),
+                                                                countUniq(ac.molid[b], ndiff=4)))
                 ofh.write(",".join(row) + "\n")
                 break
         samfile.close()
@@ -515,7 +514,6 @@ def basei(basestr):
     return alphabet[basestr]
     
 if __name__ == '__main__':
-
     parser = argparse.ArgumentParser(description='Raindance analysis')
     parser.add_argument('--pairup', action='store_true', default=False)
     parser.add_argument('--fastq', action='store_true', default=False)

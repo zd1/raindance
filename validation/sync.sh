@@ -5,6 +5,7 @@
 rsync -avz --rsh='ssh -p5111 -l zding' \
       --exclude=".git/*" \
       --exclude="sync.sh" \
+      --exclude="fly*" \
       ./ localhost:/home/crangen/zding/projects/raindance/mip/code/
 
 # rsync_miseq ends here
