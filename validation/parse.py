@@ -269,16 +269,15 @@ class Analysis:
                     nucleotide = alignedread.query[pi[0]-1] # query is 0-based while alignedread is 1-based
                     ac.allele[nucleotide] += 1
                     ac.molid[nucleotide].append(mid)
-                    
                 row = [sam, mip, vt]
                 for b in ["A", "C", "G", "T", "N"]:
                     row.append("%s,%s"%(b, ac.allele[b]))
                     for ndiff in [1,2,3,4]:
                         t = Tag()
                         t.taglist = ac.molid[b]
-                        row.append("[%d]%d{%s}"%(ndiff,
+                        row.append("\"[%d]%d{%s}\""%(ndiff,
                                                  t.uniqtags(ndiff),
-                                                 t.histogram(ndiff=2)))
+                                                 t.histogram(ndiff=1)))
                 ofh.write(",".join(row) + "\n")
                 del ac
 
@@ -519,7 +518,7 @@ class Tag:
                 pre = sortedset[i]
         return count
 
-    def histogram(self, ndiff=2, top=10):
+    def histogram(self, ndiff=2):
         sortedlist = sorted(self.taglist)
         pre = None
         count = 0
@@ -544,8 +543,6 @@ class Tag:
                 topOccur[g[1]] = 1
             else:
                 topOccur[g[1]] += 1
-            if len(topOccur.keys())>= top:
-                break
         return sorted(topOccur.items(), reverse=True)
     
 def countUniq(inputset, ndiff=1):
