@@ -18,17 +18,17 @@ LG.basicConfig(level=LG.INFO)
 
 params = {
     # wimm
-    "sourcedir": "/hts/data6/miseq/agoriely/2015-07-07",
-    "fastqdir": "/home/crangen/zding/projects/raindance/mip/fq",
-    "bamdir": "/home/crangen/zding/projects/raindance/mip/aln",
-    "outdir":"/home/crangen/zding/projects/raindance/mip/scan",
-    "design": "/home/crangen/zding/projects/raindance/mip/scan/design.variant",
+    # "sourcedir": "/hts/data6/miseq/agoriely/2015-07-07",
+    # "fastqdir": "/home/crangen/zding/projects/raindance/mip/fq",
+    # "bamdir": "/home/crangen/zding/projects/raindance/mip/aln",
+    # "outdir":"/home/crangen/zding/projects/raindance/mip/scan",
+    # "design": "/home/crangen/zding/projects/raindance/mip/scan/design.variant",
     # local
-    # "sourcedir": "/Users/zd1/volumn/miseq",
-    # "fastqdir": "/Users/zd1/cloud/data/raindance/miseq/fq",
-    # "bamdir": "/Users/zd1/volumn/wimm/raindance/mip/aln",
-    # "outdir":"/Users/zd1/cloud/data/raindance/miseq",
-    # "design": "/Users/zd1/cloud/data/raindance/miseq/mip/design.variant",
+    "sourcedir": "/Users/zd1/volumn/miseq",
+    "fastqdir": "/Users/zd1/cloud/data/raindance/miseq/fq",
+    "bamdir": "/Users/zd1/volumn/wimm/raindance/mip/aln",
+    "outdir":"/Users/zd1/cloud/data/raindance/miseq",
+    "design": "/Users/zd1/cloud/data/raindance/miseq/mip/design.variant",
     "n_randomcode": 5,
     "probelen": 25,
     "ksize": 8
@@ -97,7 +97,8 @@ def scan_bam():
     design.loaddesign()
     design.build_hash()
 
-    i = int(os.environ['SGE_TASK_ID']) - 1
+    # i = int(os.environ['SGE_TASK_ID']) - 1
+    i = 7
     run = Analysis()
     sam = samples[i]
     bam = "%s/%s.sorted.bam"%(params["bamdir"], sam)
@@ -233,13 +234,18 @@ class Analysis:
     
         samfile = pysam.Samfile("%s"%bam, "rb" )
         ofh = open("%s/%s.count"%(outdir, sam), "w")
-        for mip in design.mipvariant.keys():
+        # for mip in design.mipvariant.keys():
+        if True:
+            mip = "45_FGFR2_exon5_p.C227S_79_2_55"
             variants = design.mipvariant[mip]
-            for vt in variants:
+            # for vt in variants:
+            if True:
+                vt = "chr10:123276893"
                 LG.info("mip:%s, variant:%s"%(mip, vt))
                 chrm, pos = vt.split(":")
                 pos = int(pos)
                 ac = AlleleCounter()
+                alltags = {}
                 for alignedread in samfile.fetch(chrm, pos-1, pos):
                     nTotal += 1
                     if nTotal % 10000 == 0:
@@ -266,19 +272,52 @@ class Analysis:
                     pi = [p for p in range(len(alignedread.positions)) if alignedread.positions[p] == pos]
                     if len(pi) == 0:
                         continue
+                    if not alltags.has_key(mid):
+                        alltags[mid] = set([])
                     nucleotide = alignedread.query[pi[0]-1] # query is 0-based while alignedread is 1-based
+                    alltags[mid].add(nucleotide)
                     ac.allele[nucleotide] += 1
                     ac.molid[nucleotide].append(mid)
+                    
+                t = Tag()
+                for _mid in alltags.keys():
+                    if len(alltags[_mid]) > 1:
+                        t.badlist.add(_mid)
+
+                ## tag counts [ndiff, (ACGTN)]
+                tagmx = np.zeros((4,5), dtype="i8")
+                ## hist strings [ndiff, (ACGTN)]
+                hmx = np.zeros((4,5), dtype="S50")
+                ## non single counts (ACGTN) diff=2
+                nonsingle = np.zeros((4,5), dtype="i8")
+                
+                for b in range(5):  ## alleles
+                    a = ["A", "C", "G", "T", "N"][b]
+                    for ndiff in range(4):
+                        t.taglist = []
+                        t.taglist = ac.molid[a]
+                        c=t.uniqtags(ndiff)
+                        tagmx[ndiff, b] = c
+                        h=t.histogram(ndiff)
+                        hmx[ndiff, b] = "%s"%h
+                        hNonSingle = [_h[0]*_h[1] for _h in h if _h[0]!=1 and _h[1]!=1]
+                        nonsingle[ndiff, b] = np.sum(hNonSingle)
+                        
+                ## normalise alleles nonsingle_tag_counts into fractions
+                nonsingle /= np.sum(nonsingle, axis=1)[:,None]
+
+                ## write output
                 row = [sam, mip, vt]
-                for b in ["A", "C", "G", "T", "N"]:
-                    row.append("%s,%s"%(b, ac.allele[b]))
-                    for ndiff in [1,2,3,4]:
-                        t = Tag()
-                        t.taglist = ac.molid[b]
-                        row.append("\"[%d]%d{%s}\""%(ndiff,
-                                                 t.uniqtags(ndiff),
-                                                 t.histogram(ndiff=1)))
-                ofh.write(",".join(row) + "\n")
+                for b in range(5):  ## alleles
+                    a = ["A", "C", "G", "T", "N"][b]
+                    row.extend([a, ac.allele[a]])
+                    for d in range(4):
+                        row.append("\"%s\""%tagmx[d, b])
+                    for d in range(4):
+                        row.append("\"%s\""%hmx[d, b])
+                    for d in range(4):
+                        row.append("\"%s\""%nonsingle[d, b])
+                ofh.write(",".join(map(str, row)) + "\n")
                 del ac
 
         samfile.close()
@@ -497,11 +536,12 @@ def stringdiff(s1,s2):
 
 class Tag:
     taglist = []
+    badlist = set([])
     def __init__(self):
         pass
     
     def uniqtags(self, ndiff = 1):
-        tagset = set(self.taglist)
+        tagset = set(self.taglist) - self.badlist
         if ndiff == 1:
             return len(tagset)
         sortedset = sorted(tagset)
@@ -524,6 +564,8 @@ class Tag:
         count = 0
         group = {}
         for i in range(len(sortedlist)):
+            if sortedlist[i] in self.badlist:
+                continue
             if pre is None:
                 count +=1
                 pre = sortedlist[i]
@@ -596,25 +638,25 @@ def basei(basestr):
     return alphabet[basestr]
     
 if __name__ == '__main__':
-    # testcountunique()
-    parser = argparse.ArgumentParser(description='Raindance analysis')
-    parser.add_argument('--pairup', action='store_true', default=False)
-    parser.add_argument('--fastq', action='store_true', default=False)
-    parser.add_argument('--bam', action='store_true', default=False)
-    args = parser.parse_args()
-    LG.info(args)
-    try:
-        if args.pairup:
-            LG.info("making a sample list")
-            samplelist()
-        elif args.fastq:
-            LG.info("processing fastq")
-            process_fastq()
-        elif args.bam:
-            LG.info("scan bam to quantify alleles")
-            scan_bam()
-        else:
-            print "need to specify --fastq, --bam"
-            sys.exit(1)
-    except:
-        sys.exit(1)
+    scan_bam()
+    # parser = argparse.ArgumentParser(description='Raindance analysis')
+    # parser.add_argument('--pairup', action='store_true', default=False)
+    # parser.add_argument('--fastq', action='store_true', default=False)
+    # parser.add_argument('--bam', action='store_true', default=False)
+    # args = parser.parse_args()
+    # LG.info(args)
+    # try:
+    #     if args.pairup:
+    #         LG.info("making a sample list")
+    #         samplelist()
+    #     elif args.fastq:
+    #         LG.info("processing fastq")
+    #         process_fastq()
+    #     elif args.bam:
+    #         LG.info("scan bam to quantify alleles")
+    #         scan_bam()
+    #     else:
+    #         print "need to specify --fastq, --bam"
+    #         sys.exit(1)
+    # except:
+    #     sys.exit(1)
