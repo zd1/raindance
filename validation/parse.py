@@ -18,17 +18,17 @@ LG.basicConfig(level=LG.INFO)
 
 params = {
     # wimm
-    # "sourcedir": "/hts/data6/miseq/agoriely/2015-07-07",
-    # "fastqdir": "/home/crangen/zding/projects/raindance/mip/fq",
-    # "bamdir": "/home/crangen/zding/projects/raindance/mip/aln",
-    # "outdir":"/home/crangen/zding/projects/raindance/mip/scan",
-    # "design": "/home/crangen/zding/projects/raindance/mip/scan/design.variant",
+    "sourcedir": "/hts/data6/miseq/agoriely/2015-07-07",
+    "fastqdir": "/home/crangen/zding/projects/raindance/mip/fq",
+    "bamdir": "/home/crangen/zding/projects/raindance/mip/aln",
+    "outdir":"/home/crangen/zding/projects/raindance/mip/scan",
+    "design": "/home/crangen/zding/projects/raindance/mip/scan/design.variant",
     # local
-    "sourcedir": "/Users/zd1/volumn/miseq",
-    "fastqdir": "/Users/zd1/cloud/data/raindance/miseq/fq",
-    "bamdir": "/Users/zd1/volumn/wimm/raindance/mip/aln",
-    "outdir":"/Users/zd1/cloud/data/raindance/miseq",
-    "design": "/Users/zd1/cloud/data/raindance/miseq/mip/design.variant",
+    # "sourcedir": "/Users/zd1/volumn/miseq",
+    # "fastqdir": "/Users/zd1/cloud/data/raindance/miseq/fq",
+    # "bamdir": "/Users/zd1/volumn/wimm/raindance/mip/aln",
+    # "outdir":"/Users/zd1/cloud/data/raindance/miseq",
+    # "design": "/Users/zd1/cloud/data/raindance/miseq/mip/design.variant",
     "n_randomcode": 5,
     "probelen": 25,
     "ksize": 8
@@ -97,8 +97,7 @@ def scan_bam():
     design.loaddesign()
     design.build_hash()
 
-    # i = int(os.environ['SGE_TASK_ID']) - 1
-    i = 7
+    i = int(os.environ['SGE_TASK_ID']) - 1
     run = Analysis()
     sam = samples[i]
     bam = "%s/%s.sorted.bam"%(params["bamdir"], sam)
@@ -233,14 +232,14 @@ class Analysis:
         nNotpaired = 0 # number of pairs of reads with barcode not matched between read1 and read2
     
         samfile = pysam.Samfile("%s"%bam, "rb" )
-        ofh = open("%s/%s.count"%(outdir, sam), "w")
-        # for mip in design.mipvariant.keys():
-        if True:
-            mip = "45_FGFR2_exon5_p.C227S_79_2_55"
+        ofh = open("%s/%s.count.csv"%(outdir, sam), "w")
+        for mip in design.mipvariant.keys():
+        # if True:
+            # mip = "45_FGFR2_exon5_p.C227S_79_2_55"
             variants = design.mipvariant[mip]
-            # for vt in variants:
-            if True:
-                vt = "chr10:123276893"
+            for vt in variants:
+            # if True:
+            #     vt = "chr10:123276893"
                 LG.info("mip:%s, variant:%s"%(mip, vt))
                 chrm, pos = vt.split(":")
                 pos = int(pos)
@@ -287,9 +286,9 @@ class Analysis:
                 ## tag counts [ndiff, (ACGTN)]
                 tagmx = np.zeros((4,5), dtype="i8")
                 ## hist strings [ndiff, (ACGTN)]
-                hmx = np.zeros((4,5), dtype="S50")
+                hmx = np.zeros((4,5), dtype="S1000")
                 ## non single counts (ACGTN) diff=2
-                nonsingle = np.zeros((4,5), dtype="i8")
+                nonsingle = np.zeros((4,5), dtype="f8")
                 
                 for b in range(5):  ## alleles
                     a = ["A", "C", "G", "T", "N"][b]
@@ -312,11 +311,11 @@ class Analysis:
                     a = ["A", "C", "G", "T", "N"][b]
                     row.extend([a, ac.allele[a]])
                     for d in range(4):
-                        row.append("\"%s\""%tagmx[d, b])
+                        row.append("\"[%s] %s\""%(d+1,tagmx[d, b]))
                     for d in range(4):
-                        row.append("\"%s\""%hmx[d, b])
+                        row.append("\"[%s] %s\""%(d+1, hmx[d, b]))
                     for d in range(4):
-                        row.append("\"%s\""%nonsingle[d, b])
+                        row.append("\"[%s] %s\""%(d+1, nonsingle[d, b]))
                 ofh.write(",".join(map(str, row)) + "\n")
                 del ac
 
@@ -638,25 +637,24 @@ def basei(basestr):
     return alphabet[basestr]
     
 if __name__ == '__main__':
-    scan_bam()
-    # parser = argparse.ArgumentParser(description='Raindance analysis')
-    # parser.add_argument('--pairup', action='store_true', default=False)
-    # parser.add_argument('--fastq', action='store_true', default=False)
-    # parser.add_argument('--bam', action='store_true', default=False)
-    # args = parser.parse_args()
-    # LG.info(args)
-    # try:
-    #     if args.pairup:
-    #         LG.info("making a sample list")
-    #         samplelist()
-    #     elif args.fastq:
-    #         LG.info("processing fastq")
-    #         process_fastq()
-    #     elif args.bam:
-    #         LG.info("scan bam to quantify alleles")
-    #         scan_bam()
-    #     else:
-    #         print "need to specify --fastq, --bam"
-    #         sys.exit(1)
-    # except:
-    #     sys.exit(1)
+    parser = argparse.ArgumentParser(description='Raindance analysis')
+    parser.add_argument('--pairup', action='store_true', default=False)
+    parser.add_argument('--fastq', action='store_true', default=False)
+    parser.add_argument('--bam', action='store_true', default=False)
+    args = parser.parse_args()
+    LG.info(args)
+    try:
+        if args.pairup:
+            LG.info("making a sample list")
+            samplelist()
+        elif args.fastq:
+            LG.info("processing fastq")
+            process_fastq()
+        elif args.bam:
+            LG.info("scan bam to quantify alleles")
+            scan_bam()
+        else:
+            print "need to specify --fastq, --bam"
+            sys.exit(1)
+    except:
+        sys.exit(1)
