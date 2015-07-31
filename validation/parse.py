@@ -235,7 +235,7 @@ class Analysis:
         ofh = open("%s/%s.count.csv"%(outdir, sam), "w")
         for mip in design.mipvariant.keys():
         # if True:
-            # mip = "45_FGFR2_exon5_p.C227S_79_2_55"
+        #     mip = "45_FGFR2_exon5_p.C227S_79_2_55"
             variants = design.mipvariant[mip]
             for vt in variants:
             # if True:
@@ -286,9 +286,11 @@ class Analysis:
                 ## tag counts [ndiff, (ACGTN)]
                 tagmx = np.zeros((4,5), dtype="i8")
                 ## hist strings [ndiff, (ACGTN)]
-                hmx = np.zeros((4,5), dtype="S1000")
+                hmx = np.zeros((4,5), dtype="S10000")
                 ## non single counts (ACGTN) diff=2
                 nonsingle = np.zeros((4,5), dtype="f8")
+                ## non single tag counts (ACGTN) diff=2
+                nonsingletag = np.zeros((4,5), dtype="f8")
                 
                 for b in range(5):  ## alleles
                     a = ["A", "C", "G", "T", "N"][b]
@@ -299,11 +301,11 @@ class Analysis:
                         tagmx[ndiff, b] = c
                         h=t.histogram(ndiff)
                         hmx[ndiff, b] = "%s"%h
-                        hNonSingle = [_h[0]*_h[1] for _h in h if _h[0]!=1 and _h[1]!=1]
-                        nonsingle[ndiff, b] = np.sum(hNonSingle)
+                        nonsingle[ndiff, b] = np.sum([_h[0]*_h[1] for _h in h if _h[0]!=1])
+                        nonsingletag[ndiff, b] = np.sum([_h[1] for _h in h if _h[0]!=1])
                         
                 ## normalise alleles nonsingle_tag_counts into fractions
-                nonsingle /= np.sum(nonsingle, axis=1)[:,None]
+                nonsingleratio = nonsingle/np.sum(nonsingle, axis=1)[:,None]
 
                 ## write output
                 row = [sam, mip, vt]
@@ -311,11 +313,11 @@ class Analysis:
                     a = ["A", "C", "G", "T", "N"][b]
                     row.extend([a, ac.allele[a]])
                     for d in range(4):
-                        row.append("\"[%s] %s\""%(d+1,tagmx[d, b]))
+                        row.append("\"[%s] %s (%s)\""%(d+1,tagmx[d, b], nonsingletag[d, b]))
                     for d in range(4):
                         row.append("\"[%s] %s\""%(d+1, hmx[d, b]))
                     for d in range(4):
-                        row.append("\"[%s] %s\""%(d+1, nonsingle[d, b]))
+                        row.append("\"[%s] %s\""%(d+1, nonsingleratio[d, b]))
                 ofh.write(",".join(map(str, row)) + "\n")
                 del ac
 
