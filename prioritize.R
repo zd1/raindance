@@ -6,6 +6,8 @@ wkdir="/Users/zd1/cloud/data/raindance/pileup/sum/calls/annovar/release_2015-07-
 setwd(wkdir)
 samples <- read.table("/Users/zd1/cloud/data/raindance/meta/samples.csv", sep=",", header=TRUE)
 
+timestamp <- format(Sys.time(), "%Y_%b_%d_%H-%M-%S")
+save.image(paste0(timestamp, ".Rdata"))
 ######################################################################################
 ## Unannotated VCF table made by bcftools, we filtered on Q20, so have 6k variants
 ######################################################################################
@@ -61,7 +63,11 @@ get_site_key <- function(dat){
     ## })
 }
 
-
+convert_delimiter_to_semicolon <- function(invcf){
+    invcf$P20 <- sapply(invcf$P20, function(x){gsub(",", ";", x)})
+    invcf$P50 <- sapply(invcf$P50, function(x){gsub(",", ";", x)})
+    invcf
+}
 
 ############################################################################
 ## Mutation Pattern
