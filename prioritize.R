@@ -153,6 +153,10 @@ vcf$MxRateRank <- rank(-vcf$MxRate)
 vcf$MaxP[which(!is.finite(vcf$MaxP))] <- 300
 vcf$PRank <- rank(-vcf$MaxP)
 
+vcf$PvlRank <- ave(-log10(vcf$MaxP), vcf$Cat, FUN=rank)
+vcf$logRate <- log10(vcf$MxRate)
+vcf$RateRank <- ave(-vcf$logRate, vcf$Cat, FUN=rank)
+
 # Replicated - a variant identified in overlapping amplicons in *same* samples
 vcf.rep <- vcf[,c("Chrm", "Pos", "Alt", "P20")]
 s <- strsplit(as.character(vcf.rep$P20), split = ",")
@@ -161,15 +165,16 @@ vcf.rep.exd <- data.frame(Chrm=rep(vcf.rep$Chrm, sapply(s, length)),
                           Alt=rep(vcf.rep$Alt, sapply(s, length)),
                           P20 = unlist(s))
 
-repi <- which(duplicated(vcf.rep.exd) | duplicated(vcf.rep.exd, fromLast = TRUE))
-vcf.rep <- vcf.rep.exd[repi,]
+repi.exd <- which(duplicated(vcf.rep.exd) | duplicated(vcf.rep.exd, fromLast = TRUE))
+vcf.rep <- vcf.rep.exd[repi.exd,]
+vcf.rep <- unique(vcf.rep[, c("Chrm", "Pos", "Alt")])
 
 vcf$Rep <- "Uni"
 
-repi <- which(outer(vcf$Chrm, vcf.rep$Chrm, "==") & 
-          outer(vcf$Pos,  vcf.rep$Pos, "==") &
-              outer(vcf$Alt,  vcf.rep$Alt, "=="), 
-      arr.ind=TRUE)
+repi <- which(outer(vcf$Chrm, vcf.rep$Chrm, "==") &
+              outer(vcf$Pos,  vcf.rep$Pos, "==") &
+              outer(vcf$Alt,  vcf.rep$Alt, "=="),
+              arr.ind=TRUE)
 
 vcf$Rep[repi] <- "Rep"
 vcf$Rep <- as.factor(vcf$Rep)
@@ -185,7 +190,7 @@ libc <- array(0, c(dim(vcf)[1], length(libs)))
 inds <- unique(samples$individual)
 indc <- array(0,c(dim(vcf)[1],length(inds)))
 
-# add counts              
+# add counts
 for(i in seq(1,dim(vcf)[1])){
     sam_i <- samples[match(as.integer(strsplit(as.character(vcf$P20[i]), ",")[[1]]), samples$sid),]
     inds_i <- sam_i$individual
@@ -263,7 +268,7 @@ vcfmutptnlibmelt <- melt(vcfmutptnlib, id=c("Mut", "Lib"))
 pdf("lib.mutptn.samplecount.pdf")
 ggplot(vcfmutptnlibmelt, aes(x=Lib, y=value, group=Mut, color=Mut)) + geom_point() +
     facet_grid(variable ~ .,  scales = "free") +
-                theme(axis.text.x = element_text(angle = 90, hjust = 1, size = rel(1)), 
+                theme(axis.text.x = element_text(angle = 90, hjust = 1, size = rel(1)),
                       axis.title.x = element_text(size = rel(1.8)),
                       axis.title.y = element_text(size = rel(1.8)))
 dev.off()
@@ -279,7 +284,7 @@ load("2015-07-23_processed.Rdata")
 badlibidx <- which(vcf$P20LibMax>=3 & vcf$P20SizeLib == 1)
 
 topidx <- which(vcf$MdCov>5000 & vcf$MxRate>0 & vcf$RelPos>2 & vcf$MxRate <0.03 &  vcf$MxRateRank < 3000 & (vcf$Rep == "Rep" | vcf$PRank< 5000))
-topidx <- topidx[!topidx %in% badlibidx]              
+topidx <- topidx[!topidx %in% badlibidx]
 vcftop <- vcf[topidx,]
 length(unique(vcftop[, "Pos"]))
 
@@ -400,7 +405,7 @@ gg <- ggplot(expcat, aes(x=Category, y=Counts,fill=Type)) +
 print(gg)
 dev.off()
 
-## P20SizeInd >2 
+## P20SizeInd >2
 pdf("p20SizeInd.rep.pdf")
 fltidx <- which(vcf$MdCov>5000 & vcf$MxRate>0 & vcf$RelPos>2 & vcf$Rep == "Rep")
 gg<-ggplot(vcfout[fltidx,], aes(x=P20SizeInd, fill=Cat)) +
@@ -446,7 +451,7 @@ gg <- ggplot(expcat, aes(x=Category, y=Counts,fill=Type)) +
 print(gg)
 dev.off()
 
-## top vs all 
+## top vs all
 pdf("top.vs.all.pdf")
 expcat <- countenrich(vcf)
 gg <- ggplot(expcat, aes(x=Category, y=Counts,fill=Type)) +
@@ -465,7 +470,7 @@ dev.off()
 
 badlibidx <- which(vcf$P20LibMax>=3 & vcf$P20SizeLib == 1)
 topidx <- which(vcf$MdCov>5000 & vcf$MxRate>0 & vcf$RelPos>2 & (vcf$Rep == "Rep" | (vcf$PvlRank < 1000 & (vcf$P20SizeInd >=2))))
-topidx <- topidx[!topidx %in% badlibidx]              
+topidx <- topidx[!topidx %in% badlibidx]
 
 ## numbers
 cat("bad library",length(badlibidx), "\n")
@@ -485,7 +490,7 @@ cat("P20Size",length(which(vcf$P20SizeInd>=2)), "\n")
 pdf("posreltoedge.pdf")
 ggplot(vcfout, aes(x=RelPos, fill=Cat)) +
     geom_histogram(aes(y=..count../sum(..count..))) +
-    scale_x_discrete("Max distance to edge", breaks=seq(0,max(vcfout$RelPos[fltidx]),5), labels = seq(0,max(vcfout$RelPos[fltidx]),5)) +        
+    scale_x_discrete("Max distance to edge", breaks=seq(0,max(vcfout$RelPos[fltidx]),5), labels = seq(0,max(vcfout$RelPos[fltidx]),5)) +
             ggtitle("Variant position relative to Amplicon edge")
 dev.off()
 
