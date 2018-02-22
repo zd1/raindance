@@ -43,6 +43,25 @@ amp$Amp <- sapply(1:dim(amp)[1], function(i){
 save.image("2015-07-23.Rdata")
 ############################################################################
 ############################################################################
+get_key <- function(dat){
+    apply(dat[, c("Chrm", "Pos", "Amp", "Ref", "Alt")], 1, function(x){
+	paste0(trimws(x), collapse="_")
+    })
+    ## apply(dat[, c("Chrm", "Pos", "Amp", "Ref")], 1, function(x){
+    ##     paste0(trimws(x), collapse="_")
+    ## })
+}
+
+get_site_key <- function(dat){
+    apply(dat[, c("Chrm", "Pos", "Ref", "Alt")], 1, function(x){
+	paste0(trimws(x), collapse="_")
+    })
+    ## apply(dat[, c("Chrm", "Pos", "Amp", "Ref")], 1, function(x){
+    ##     paste0(trimws(x), collapse="_")
+    ## })
+}
+
+
 
 ############################################################################
 ## Mutation Pattern
@@ -157,27 +176,42 @@ vcf$PvlRank <- ave(-log10(vcf$MaxP), vcf$Cat, FUN=rank)
 vcf$logRate <- log10(vcf$MxRate)
 vcf$RateRank <- ave(-vcf$logRate, vcf$Cat, FUN=rank)
 
+vcf$key <- get_key(vcf)
+vcf$sitekey <- get_site_key(vcf)
+
 # Replicated - a variant identified in overlapping amplicons in *same* samples
-vcf.rep <- vcf[,c("Chrm", "Pos", "Alt", "P20")]
+vcf.rep <- vcf[,c("Chrm", "Pos", "Alt", "sitekey", "P20")]
 s <- strsplit(as.character(vcf.rep$P20), split = ",")
-vcf.rep.exd <- data.frame(Chrm=rep(vcf.rep$Chrm, sapply(s, length)),
-                          Pos=rep(vcf.rep$Pos, sapply(s, length)),
-                          Alt=rep(vcf.rep$Alt, sapply(s, length)),
+groupsizes <- sapply(s, length)
+vcf.rep.exd <- data.frame(Chrm=rep(vcf.rep$Chrm, groupsizes),
+                          Pos=rep(vcf.rep$Pos, groupsizes),
+                          Alt=rep(vcf.rep$Alt, groupsizes),
+                          sitekey=rep(vcf.rep$sitekey, groupsizes),
                           P20 = unlist(s))
 
 repi.exd <- which(duplicated(vcf.rep.exd) | duplicated(vcf.rep.exd, fromLast = TRUE))
 vcf.rep <- vcf.rep.exd[repi.exd,]
-vcf.rep <- unique(vcf.rep[, c("Chrm", "Pos", "Alt")])
+vcf.rep <- unique(vcf.rep[, c("Chrm", "Pos", "Alt", "sitekey")])
+
+known.singletons <- data.frame(do.call("rbind", strsplit(c("chr11_113934509_C", "chr11_113934514_C", "chr11_113934525_C", "chr11_113934547_A", "chr11_113934548_G", "chr11_113934563_C", "chr11_113934581_C", "chr11_113934606_G", "chr11_113934631_T", "chr11_113934640_C", "chr11_113934667_C", "chr11_113934689_C", "chr11_113934718_A", "chr11_113934734_C", "chr11_113934739_G", "chr11_113934697_T", "chr11_113934706_C", "chr11_113934728_G", "chr11_113934732_C", "chr11_113934738_A", "chr11_113934752_C", "chr11_113934758_C", "chr11_113934760_T", "chr11_113934762_C", "chr11_113934776_T", "chr11_113934777_A", "chr11_113934782_A", "chr11_113934786_G", "chr11_113934801_G", "chr11_113934806_A", "chr11_113934807_A"), split="_")))
+colnames(known.singletons) <- c("Chrm", "Pos", "Alt")
+
+stopifnot(
+    nrow(merge(known.singletons,
+               vcf.rep,
+               by.x=c("Chrm", "Pos", "Alt"),
+               by.y=c("Chrm", "Pos", "Alt"))) == 0)
 
 vcf$Rep <- "Uni"
+vcf$Rep[which(vcf$sitekey %in% vcf.rep$sitekey)] <- "Rep"
 
-repi <- which(outer(vcf$Chrm, vcf.rep$Chrm, "==") &
-              outer(vcf$Pos,  vcf.rep$Pos, "==") &
-              outer(vcf$Alt,  vcf.rep$Alt, "=="),
-              arr.ind=TRUE)
+stopifnot(
+    nrow(merge(known.singletons,
+               vcf[which(vcf$Rep == "Rep"), c("Chrm", "Pos", "Alt")],
+               by.x=c("Chrm", "Pos", "Alt"),
+               by.y=c("Chrm", "Pos", "Alt"))) == 0)
+table(vcf$Rep)
 
-vcf$Rep[repi] <- "Rep"
-vcf$Rep <- as.factor(vcf$Rep)
 
 save.image("2015-07-23_processed.Rdata")
 
