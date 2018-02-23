@@ -218,6 +218,14 @@ stopifnot(
                by.y=c("Chrm", "Pos", "Alt"))) == 0)
 table(vcf$Rep)
 
+repliatesonly <- vcf[which(vcf$Rep == "Rep"),]
+
+write.table(
+    repliatesonly,
+    file=paste0("replicates.", nrow(repliatesonly), "list.", timestamp, ".tsv"),
+    sep="\t", col.names=TRUE, row.names=FALSE)
+
+
 
 save.image("2015-07-23_processed.Rdata")
 
