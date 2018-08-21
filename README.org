@@ -1,47 +1,56 @@
-* Selfish mutations dysregulating RAS-MAPK signaling are pervasive in aged human testes
+* Manuscript and Data
 
-  This repository contains source code developed for the manuscript.
+  This repository contains source code developed for the [[https://www.biorxiv.org/content/early/2018/05/04/314815][manuscript]]:
+
+  #+BEGIN_QUOTE
+  Selfish mutations dysregulating RAS-MAPK signaling are pervasive in aged human testes
+
+  Geoffrey J. Maher, Hannah K. Ralph, Zhihao Ding, Nils Koelling, Hana
+  Mlcochova, Eleni Giannoulatou, Pawan Dhami, Dirk S. Paul, Stefan
+  H. Stricker, Stephan Beck, Gilean McVean, Andrew OM Wilkie, Anne
+  Goriely
+  #+END_QUOTE
+
   The raw fastq files can be downloaded from here.
-
   The VCF with pileup counts per sample per site can be downloaded here.
 
-** User guide
+* User guide
 
-   - Preprocess reads in fastq format
+  - Preprocess reads in fastq format
 
-     #+BEGIN_SRC sh
-       python parse_primer.py --fastq --sample sampleName
-     #+END_SRC
+    #+BEGIN_SRC sh
+      python parse_primer.py --fastq --sample sampleName
+    #+END_SRC
 
-   - Read mapping
+  - Read mapping
 
-     #+BEGIN_SRC sh
-       bwa mem -R "@RG\tID:$ID\tSM:$SM\tLB:$LB" $ref $read1 $read2 > $sam
-     #+END_SRC
+    #+BEGIN_SRC sh
+      bwa mem -R "@RG\tID:$ID\tSM:$SM\tLB:$LB" $ref $read1 $read2 > $sam
+    #+END_SRC
 
-   - Pileup
+  - Pileup
 
-     #+BEGIN_SRC sh
-       python parse_primer.py  --pileup  --sample sampleName
-     #+END_SRC
+    #+BEGIN_SRC sh
+      python parse_primer.py  --pileup  --sample sampleName
+    #+END_SRC
 
-   - Integrate quantifications of samples
+  - Integrate quantifications of samples
 
-     #+BEGIN_SRC sh
-       python parse_primer.py --sum
-     #+END_SRC
+    #+BEGIN_SRC sh
+      python parse_primer.py --sum
+    #+END_SRC
 
-   - Aggregate quantifications of each amplicon across samples, generating files/plots per amplicon
+  - Aggregate quantifications of each amplicon across samples, generating files/plots per amplicon
 
-     #+BEGIN_SRC sh
-       python parse_primer.py --agg --amp ampliconName
-     #+END_SRC
+    #+BEGIN_SRC sh
+      python parse_primer.py --agg --amp ampliconName
+    #+END_SRC
 
-   - Call elevated alleles
+  - Call elevated alleles
 
-     #+BEGIN_SRC sh
-       python parse_primer.py --call --amp ampliconName
-     #+END_SRC
+    #+BEGIN_SRC sh
+      python parse_primer.py --call --amp ampliconName
+    #+END_SRC
 
 
 * Meta Data
