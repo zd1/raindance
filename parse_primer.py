@@ -164,8 +164,6 @@ class Analysis:
         LG.info("found %s"%(str(ids)))
 
     def scan_fastq(self, sample):
-        #tag = self.fastqtag[index]
-        #tag = "WTCHG_98544_03"
         tag = sample
         fastq_read1 = self.fastqset[tag]['1']
         fastq_read2 = self.fastqset[tag]['2']
@@ -560,7 +558,6 @@ class Pileup:
         self.loadsamples()
 
         # one directory for each amplicon. calls are made across samples
-        #outdir = "/Users/zd1/cloud/data/raindance/pileup/sum/%s"%ampkey
         outdir = params["pileup_agg"] + "/" + ampkey
         if not os.path.exists(outdir):
             os.mkdir(outdir)
@@ -571,7 +568,6 @@ class Pileup:
             LG.error("Can't find %s in %s; data for amp possibily incomplete"%(ampkey, params["pileup_sum"]))
             sys.exit(1)
 
-        #fh = h5py.File("/Users/zd1/volumn/wt/raindance/pileups/all/all.hd5",'r')
         bases = ['A', 'C', 'G', 'T']
         posidx = fh[ampkey]['target_index']
         pileup = fh[ampkey]['pileup'][:]
@@ -1661,8 +1657,10 @@ if __name__ == '__main__':
     parser.add_argument('--fastq', action='store_true', default=False)
     parser.add_argument('--pileup', action='store_true', default=False)
     parser.add_argument('--sum', action='store_true', default=False)
-    parser.add_argument('--agg', action='store_true', default=False, help="agg per amp across all samples")
-    parser.add_argument('--call', action='store_true', default=False, help="call variants per amp across all samples")
+    parser.add_argument('--agg', action='store_true', default=False,
+                        help="agg per amp across all samples")
+    parser.add_argument('--call', action='store_true', default=False,
+                        help="call variants per amp across all samples")
     parser.add_argument('--amp', default=None, help="agg per amp across all samples")
     parser.add_argument('--sample', default = None)
     parser.add_argument('--amplist', required=False, default= None)

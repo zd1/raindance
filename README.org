@@ -1,6 +1,6 @@
 * Manuscript and Data
 
-  This repository contains source code developed for the [[https://www.biorxiv.org/content/early/2018/05/04/314815][manuscript]]:
+  This repository contains source code developed for this [[https://www.biorxiv.org/content/early/2018/05/04/314815][manuscript]]:
 
   #+BEGIN_QUOTE
   Selfish mutations dysregulating RAS-MAPK signaling are pervasive in aged human testes
@@ -11,42 +11,44 @@
   Goriely
   #+END_QUOTE
 
-  The raw fastq files can be downloaded from here.
-  The VCF with pileup counts per sample per site can be downloaded here.
+  The raw FASTQ files can be downloaded from here.  The VCF with
+  pileup counts per sample per site can be downloaded here.
 
 * User guide
 
-  - Preprocess reads in fastq format
+  - Scan reads in FASTQ for sample. Assign amplicon ID to each read
+    using kmer search.
 
     #+BEGIN_SRC sh
       python parse_primer.py --fastq --sample sampleName
     #+END_SRC
 
-  - Read mapping
+  - Alignment
 
     #+BEGIN_SRC sh
       bwa mem -R "@RG\tID:$ID\tSM:$SM\tLB:$LB" $ref $read1 $read2 > $sam
     #+END_SRC
 
-  - Pileup
+  - Pileup for each site.
 
     #+BEGIN_SRC sh
-      python parse_primer.py  --pileup  --sample sampleName
+      python parse_primer.py --pileup --sample sampleName
     #+END_SRC
 
-  - Integrate quantifications of samples
+  - Combine pileups of all samples and write out result datasets.
 
     #+BEGIN_SRC sh
       python parse_primer.py --sum
     #+END_SRC
 
-  - Aggregate quantifications of each amplicon across samples, generating files/plots per amplicon
+  - Generating files/plots for each amplicon to assist QC on input
+    signals.
 
     #+BEGIN_SRC sh
       python parse_primer.py --agg --amp ampliconName
     #+END_SRC
 
-  - Call elevated alleles
+  - Call elevated alleles in amplicon.
 
     #+BEGIN_SRC sh
       python parse_primer.py --call --amp ampliconName
