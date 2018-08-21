@@ -1,9 +1,8 @@
-wkdir <- file.path(Sys.getenv("HOME"), "Downloads/raindance")
-setwd(wkdir)
+load(file.path(Sys.getenv("HOME"), "Downloads/raindance/2015-07-23_processed.Rdata"))
 
-load("2015-07-23_processed.Rdata")
-
+setwd(file.path(Sys.getenv("HOME"), "git/raindance"))
 source("raindance_tophits_functions.R")
+
 
 vcf$key <- get_key(vcf)
 vcfout$key <- get_key(vcfout)
