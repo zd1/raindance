@@ -4,28 +4,39 @@
 
    - Preprocess reads in fastq format
 
-     #+BEGIN_SRC python
-       python parse_primer.py  --fastq  --sample sampleName
+     #+BEGIN_SRC sh
+       python parse_primer.py --fastq --sample sampleName
      #+END_SRC
 
    - Read mapping
 
-     =bwa mem -R "@RG\tID:$ID\tSM:$SM\tLB:$LB" $ref $read1 $read2 > $sam=
+     #+BEGIN_SRC sh
+       bwa mem -R "@RG\tID:$ID\tSM:$SM\tLB:$LB" $ref $read1 $read2 > $sam
+     #+END_SRC
 
    - Pileup
 
-     =python parse_primer.py  --pileup  --sample sampleName=
+     #+BEGIN_SRC sh
+       python parse_primer.py  --pileup  --sample sampleName
+     #+END_SRC
 
    - Integrate quantifications of samples
 
-     =python parse_primer.py --sum=
+     #+BEGIN_SRC sh
+       python parse_primer.py --sum
+     #+END_SRC
 
    - Aggregate quantifications of each amplicon across samples, generating files/plots per amplicon
 
-     =python parse_primer.py --agg --amp ampliconName=
+     #+BEGIN_SRC sh
+       python parse_primer.py --agg --amp ampliconName
+     #+END_SRC
 
    - Call elevated alleles
-     =python parse_primer.py --call --amp ampliconName=
+
+     #+BEGIN_SRC sh
+       python parse_primer.py --call --amp ampliconName
+     #+END_SRC
 
 * Meta Data
 
