@@ -1,4 +1,0 @@
-# MIP
-
-MIP related analysis.
-
