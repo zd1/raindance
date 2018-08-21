@@ -17,19 +17,19 @@
 * User guide
 
   - Scan reads in FASTQ for sample. Assign amplicon ID to each read
-    using kmer search.
+    using a kmer search algorithm.
 
     #+BEGIN_SRC sh
       python parse_primer.py --fastq --sample sampleName
     #+END_SRC
 
-  - Alignment
+  - Alignment for each sample.
 
     #+BEGIN_SRC sh
       bwa mem -R "@RG\tID:$ID\tSM:$SM\tLB:$LB" $ref $read1 $read2 > $sam
     #+END_SRC
 
-  - Pileup for each site.
+  - Pileup for all sites for each sample.
 
     #+BEGIN_SRC sh
       python parse_primer.py --pileup --sample sampleName
@@ -48,7 +48,7 @@
       python parse_primer.py --agg --amp ampliconName
     #+END_SRC
 
-  - Call elevated alleles in amplicon.
+  - Call elevated alleles for amplicon.
 
     #+BEGIN_SRC sh
       python parse_primer.py --call --amp ampliconName
