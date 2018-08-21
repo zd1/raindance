@@ -63,7 +63,3 @@
   | meta/fastq.index    | A list input  fastq files                 |
   | meta/amplicons.csv  | Meta information for the  amplicons       |
   | meta/sample_seq.csv | Meta information for sequencing libraries |
-
-* Contact
-
-  zhihao.ding@gmail.com
