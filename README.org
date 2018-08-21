@@ -1,5 +1,10 @@
 * Selfish mutations dysregulating RAS-MAPK signaling are pervasive in aged human testes
 
+  This repository contains source code developed for the manuscript.
+  The raw fastq files can be downloaded from here.
+
+  The VCF with pileup counts per sample per site can be downloaded here.
+
 ** User guide
 
    - Preprocess reads in fastq format
@@ -38,14 +43,16 @@
        python parse_primer.py --call --amp ampliconName
      #+END_SRC
 
+
 * Meta Data
 
-  | File Name           | Description                       |
-  | --------------      | ------------                      |
-  | meta/samplelist     | A list of IDs of all samples      |
-  | meta/fastq.index    | A list of all fastq files         |
-  | meta/amplicons.csv  | Information about amplicons       |
-  | meta/sample_seq.csv | sequencing production information |
+  | File Name           | Description                               |
+  |---------------------+-------------------------------------------|
+  | meta/samplelist     | A list of IDs of all samples              |
+  | meta/fastq.index    | A list input  fastq files                 |
+  | meta/amplicons.csv  | Meta information for the  amplicons       |
+  | meta/sample_seq.csv | Meta information for sequencing libraries |
 
 * Contact
-  someone at imm.ox.ac.uk
+
+  zhihao.ding@gmail.com
